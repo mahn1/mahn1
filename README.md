@@ -1,88 +1,120 @@
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:3776AB,100:FFD43B&height=200&section=header&text=Hi%2C%20I'm%20Igor%20👋&fontSize=45&fontColor=ffffff&animation=fadeIn&fontAlignY=38&desc=Python%20Developer%20%7C%20Student&descAlignY=58&descSize=18" width="100%"/>
-
 <div align="center">
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=3776AB&center=true&vCenter=true&width=500&lines=Python+Developer;4th+year+CS+student;Python-разработчик;Студент+4+курса+ИВТ)](https://git.io/typing-svg)
+  <!-- Анимированный баннер в тёмном стиле -->
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:21262d&height=220&section=header&text=Hi%20there,%20I'm%20mahni%20👋&fontSize=42&fontColor=58a6ff&animation=fadeIn&fontAlignY=38" width="100%" alt="Header Banner"/>
 
-![Profile Views](https://komarev.com/ghpvc/?username=mahnl&label=Profile%20views&color=3776AB&style=flat-square)
-![Followers](https://img.shields.io/github/followers/mahnl?label=Followers&style=flat-square&color=FFD43B&labelColor=3776AB)
+  <p align="center">
+    <b>🐍 Python Developer | 🎓 Student @ Computer Engineering (4th Year) | 🤖 AI & ML Enthusiast</b>
+  </p>
 
-🌐 **[🇷🇺 Русский](#-обо-мне)** &nbsp;|&nbsp; **[🇬🇧 English](#-about-me)**
+  <!-- Быстрые плашки статуса -->
+  <p align="center">
+    <a href="https://t.me/mahnli"><img src="https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram" /></a>
+    <a href="mailto:gerasimog67@gmail.com"><img src="https://img.shields.io/badge/Gmail-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email" /></a>
+  </p>
 
 </div>
 
 ---
 
-## 👨‍💻 Обо мне
+### 👨‍💻 О себе / About Me
 
-- 👋 Привет! Меня зовут **Игорь**, мне **20 лет**
-- 🎓 Студент **4 курса** направления **ИВТ** (информатика и вычислительная техника)
-- 📍 Живу в **России, Сибирь** ❄️
-- 🐍 Пишу на **Python** и развиваюсь как разработчик
-- 🌱 Сейчас изучаю: *backend, базы данных, алгоритмы*
-- 💬 Всегда рад общению и интересным проектам
+```yaml
+Name: mahni
+Role: Python Developer
+Education: 4-й курс (Информатика и вычислительная техника)
+Focus: Backend Development & AI Systems
+Location: Earth 🌍
+Hobbies: Нейронные сети, оптимизация алгоритмов, Open Source
+```
 
----
-
-## 👨‍💻 About me
-
-- 👋 Hi! My name is **Igor**, I'm **20 years old**
-- 🎓 **4th-year** Computer Science & Engineering student (**IVT**)
-- 📍 Based in **Russia, Siberia** ❄️
-- 🐍 I write code in **Python** and keep growing as a developer
-- 🌱 Currently learning: *backend, databases, algorithms*
-- 💬 Always open to chat and to interesting projects
+- 🎓 Завершаю обучение по специальности **«Информатика и вычислительная техника»**.
+- 🛠️ Сейчас активно разрабатываю:
+  - 📊 **Трекер личных финансов** (Backend / API / Analytics)
+  - 🔐 **Генератор и менеджер проверки надёжности паролей** (Security & Crypto)
+- 🧠 Увлекаюсь **нейросетями**, машинным обучением и генеративными AI-моделями.
+- ⚡ Открыт к интересным проектам, стажировкам и командной разработке!
 
 ---
 
-## 🛠 Стек технологий / Tech Stack
+### 🛠️ Стек технологий и инструменты / Tech Stack
 
 <div align="center">
 
-![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![Git](https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white)
-![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)
-![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+  #### 💻 Языки программирования
+  <p align="center">
+    <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+    <img src="https://img.shields.io/badge/C%2B%2B-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white" alt="C++" />
+    <img src="https://img.shields.io/badge/Java-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java" />
+  </p>
 
-</div>
+  #### 🚀 Фреймворки и бэкенд
+  <p align="center">
+    <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
+    <img src="https://img.shields.io/badge/Flask-000000?style=for-the-badge&logo=flask&logoColor=white" alt="Flask" />
+  </p>
 
-<details>
-<summary>📦 Что ещё изучаю / What else I'm learning</summary>
-<br>
-
-<div align="center">
-
-![SQL](https://img.shields.io/badge/SQL-4479A1?style=for-the-badge&logo=postgresql&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![Django](https://img.shields.io/badge/Django-092E20?style=for-the-badge&logo=django&logoColor=white)
-
-</div>
-
-</details>
-
----
-
-## 📊 GitHub статистика / GitHub Stats
-
-<div align="center">
-
-<img height="170" src="https://github-readme-stats.vercel.app/api?username=mahn1&show_icons=true&theme=tokyonight&hide_border=true&count_private=true" />
-<img height="170" src="https://github-readme-stats.vercel.app/api/top-langs/?username=mahn1&layout=compact&theme=tokyonight&hide_border=true" />
-
-<img src="https://github-readme-streak-stats.herokuapp.com/?user=mahn1&theme=tokyonight&hide_border=true" />
+  #### 🧰 Инструменты, СУБД и окружение
+  <p align="center">
+    <a href="https://skillicons.dev">
+      <img src="https://skillicons.dev/icons?i=postgres,docker,git,vscode,bash&theme=dark" alt="Tools" />
+    </a>
+  </p>
 
 </div>
 
 ---
 
-## 📫 Связаться со мной / Contact me
+### 📊 Статистика GitHub / GitHub Stats
 
 <div align="center">
 
-[![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/mahnli)
-[![Email](https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:gerasimog67@gmail.com)
+  <table border="0">
+    <tr>
+      <td>
+        <img src="https://github-readme-stats.vercel.app/api?username=mahn1&show_icons=true&theme=tokyonight&hide_border=true&count_private=true" alt="mahni's GitHub Stats" height="170"/>
+      </td>
+      <td>
+        <img src="https://github-readme-stats.vercel.app/api/top-langs/?username=mahn1&layout=compact&theme=tokyonight&hide_border=true&langs_count=6" alt="Top Languages" height="170"/>
+      </td>
+    </tr>
+  </table>
+
+  <p align="center">
+    <img src="https://github-readme-streak-stats.herokuapp.com/?user=mahn1&theme=tokyonight&hide_border=true" alt="GitHub Streak" />
+  </p>
 
 </div>
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:FFD43B,100:3776AB&height=120&section=footer" width="100%"/>
+---
+
+### 📫 Связь со мной / Connect with me
+
+<div align="center">
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://t.me/mahnli">
+        <img src="https://raw.githubusercontent.com/maurodesouza/profile-readme-generator/master/src/assets/icons/social/telegram/default.svg" width="40" height="40" alt="Telegram" />
+        <br /><b>Telegram</b>
+        <br /><code>@mahnli</code>
+      </a>
+    </td>
+    <td align="center">
+      <a href="mailto:gerasimog67@gmail.com">
+        <img src="https://raw.githubusercontent.com/maurodesouza/profile-readme-generator/master/src/assets/icons/social/gmail/default.svg" width="40" height="40" alt="Gmail" />
+        <br /><b>Email</b>
+        <br /><code>gerasimog67@gmail.com</code>
+      </a>
+    </td>
+  </tr>
+</table>
+
+</div>
+
+---
+
+<div align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:21262d&height=100&section=footer" width="100%"/>
+</div>
