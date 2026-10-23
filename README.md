@@ -51,6 +51,12 @@ Python-разработчик, специализируюсь на **автом�
       Бэкенд для внутренних сервисов и интеграций с авторизацией по JWT.
     </td>
   </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <h3>🌐 Лендинги</h3>
+      Продающие одностраничные сайты под ключ: адаптивная вёрстка, калькуляторы цен, каталоги, формы заявок. Без конструкторов — быстрый чистый код, хостинг на GitHub Pages или вашем домене.
+    </td>
+  </tr>
 </table>
 
 ## 🚀 Проекты
@@ -62,6 +68,36 @@ Python-разработчик, специализируюсь на **автом�
 <a href="https://github.com/mahn1/vacancy-parser"><img src="https://raw.githubusercontent.com/mahn1/vacancy-parser/main/docs/summary.png" width="420" alt="Сводка отчёта vacancy-parser"/></a>
 
 `Python` `requests` `openpyxl` `ETL` `Excel`
+
+### 🌐 Лендинги
+
+<table>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <a href="https://mahn1.github.io/video-editing-landing/"><img src="https://raw.githubusercontent.com/mahn1/video-editing-landing/main/docs/preview.png" alt="Лендинг студии видеомонтажа"/></a>
+      <h4>🎬 Студия видеомонтажа</h4>
+      Анимированная монтажка, портфолио с фильтром, тарифы на вкладках
+      <br/><br/>
+      <a href="https://mahn1.github.io/video-editing-landing/">Сайт</a> · <a href="https://github.com/mahn1/video-editing-landing">Код</a>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <a href="https://mahn1.github.io/smartphone-store-landing/"><img src="https://raw.githubusercontent.com/mahn1/smartphone-store-landing/main/docs/preview.png" alt="Лендинг магазина смартфонов"/></a>
+      <h4>📱 Магазин смартфонов</h4>
+      Каталог с корзиной, калькулятор рассрочки, оценка trade-in
+      <br/><br/>
+      <a href="https://mahn1.github.io/smartphone-store-landing/">Сайт</a> · <a href="https://github.com/mahn1/smartphone-store-landing">Код</a>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <a href="https://mahn1.github.io/car-tint-landing/"><img src="https://raw.githubusercontent.com/mahn1/car-tint-landing/main/docs/preview.png" alt="Лендинг тонировочного центра"/></a>
+      <h4>🚗 Тонировка авто</h4>
+      Интерактивное затемнение стёкол, калькулятор стоимости, требования ГОСТ
+      <br/><br/>
+      <a href="https://mahn1.github.io/car-tint-landing/">Сайт</a> · <a href="https://github.com/mahn1/car-tint-landing">Код</a>
+    </td>
+  </tr>
+</table>
+
+`HTML` `CSS` `JavaScript` `адаптивная вёрстка` `GitHub Pages`
 
 ## 🛠️ Как я работаю
 
@@ -75,7 +111,7 @@ Python-разработчик, специализируюсь на **автом�
 ## 🧰 Стек
 
 <p align="left">
-  <img src="https://skillicons.dev/icons?i=python,postgres,fastapi,git,vscode&theme=dark" alt="Python, PostgreSQL, FastAPI, Git, VS Code"/>
+  <img src="https://skillicons.dev/icons?i=python,postgres,fastapi,html,css,js,git,vscode&theme=dark" alt="Python, PostgreSQL, FastAPI, HTML, CSS, JavaScript, Git, VS Code"/>
 </p>
 
 <p align="left">
