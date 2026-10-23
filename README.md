@@ -1,125 +1,101 @@
 <div align="center">
 
-  <!-- Анимированный баннер в тёмном стиле -->
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:21262d&height=220&section=header&text=Hi%20there,%20I'm%20mahni%20👋&fontSize=42&fontColor=58a6ff&animation=fadeIn&fontAlignY=38" width="100%" alt="Header Banner"/>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:1f6feb&height=200&section=header&text=mahni&fontSize=64&fontColor=ffffff&animation=fadeIn&fontAlignY=36&desc=Python%20Developer%20%C2%B7%20Data%20Automation&descSize=18&descAlignY=58&descAlign=50" width="100%" alt="mahni"/>
 
-  <p align="center">
-    <b>🐍 Python Developer | 🎓 Student @ Computer Engineering (4th Year) | 🤖 AI & ML Enthusiast</b>
-  </p>
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1200&color=58A6FF&center=true&vCenter=true&width=620&lines=Python-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D1%87%D0%B8%D0%BA;%D0%9F%D0%B0%D1%80%D1%81%D0%B8%D0%BD%D0%B3%20%D0%B8%20%D0%B0%D0%B2%D1%82%D0%BE%D0%BC%D0%B0%D1%82%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D1%8F%20%D0%B4%D0%B0%D0%BD%D0%BD%D1%8B%D1%85;Excel%20%C2%B7%20PostgreSQL%20%C2%B7%20API%20%C2%B7%20%D0%91%D0%BE%D1%82%D1%8B;%D0%9F%D1%80%D0%B5%D0%B2%D1%80%D0%B0%D1%89%D0%B0%D1%8E%20%D1%80%D1%83%D1%87%D0%BD%D1%83%D1%8E%20%D1%80%D1%83%D1%82%D0%B8%D0%BD%D1%83%20%D0%B2%20%D0%BE%D0%B4%D0%BD%D1%83%20%D0%BA%D0%BD%D0%BE%D0%BF%D0%BA%D1%83" alt="Python-разработчик · Парсинг и автоматизация данных"/>
 
-  <!-- Быстрые плашки статуса -->
-  <p align="center">
-    <a href="https://t.me/mahnli"><img src="https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram" /></a>
-    <a href="mailto:gerasimog67@gmail.com"><img src="https://img.shields.io/badge/Gmail-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email" /></a>
+  <p>
+    <a href="https://t.me/mahnli"><img src="https://img.shields.io/badge/Telegram-@mahnli-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram"/></a>
+    <a href="mailto:gerasimog67@gmail.com"><img src="https://img.shields.io/badge/Email-gerasimog67@gmail.com-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email"/></a>
+    <img src="https://img.shields.io/badge/%D0%9E%D1%82%D0%BA%D1%80%D1%8B%D1%82%20%D0%B4%D0%BB%D1%8F%20%D0%B7%D0%B0%D0%BA%D0%B0%D0%B7%D0%BE%D0%B2-2EA043?style=for-the-badge&logo=checkmarx&logoColor=white" alt="Открыт для заказов"/>
   </p>
 
 </div>
 
----
+## 👋 Привет! Я mahni
 
-### 👨‍💻 О себе / About Me
+Python-разработчик, специализируюсь на **автоматизации работы с данными**. Собираю данные с сайтов и API, чищу их, складываю в базу и отдаю готовым отчётом: в Excel, Google Таблицах или Telegram.
 
-```yaml
-Name: mahni
-Role: Python Developer
-Education: 4-й курс (Информатика и вычислительная техника)
-Focus: Backend Development & AI Systems
-Location: Earth 🌍
-Hobbies: Нейронные сети, оптимизация алгоритмов, Open Source
-```
+Если ваша команда тратит часы на копирование, сверку и сведение таблиц, это можно автоматизировать.
 
-- 🎓 Завершаю обучение по специальности **«Информатика и вычислительная техника»**.
-- 🧠 Увлекаюсь **нейросетями**, машинным обучением и генеративными AI-моделями.
-- ⚡ Открыт к интересным проектам, стажировкам и командной разработке!
-
----
-
-### 🚀 Проекты / Projects
-
-| Проект | Описание | Стек |
-|---|---|---|
-| 📊 [**vacancy-parser**](https://github.com/mahn1/vacancy-parser) | Собирает вакансии с портала «Работа России» по запросу и региону и строит Excel-отчёт: таблица с фильтрами, сводка по зарплатам, работодателям и навыкам, диаграмма | Python · requests · openpyxl |
-
----
-
-### 🛠️ Стек технологий и инструменты / Tech Stack
-
-<div align="center">
-
-  #### 💻 Языки программирования
-  <p align="center">
-    <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
-    <img src="https://img.shields.io/badge/C%2B%2B-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white" alt="C++" />
-    <img src="https://img.shields.io/badge/Java-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java" />
-  </p>
-
-  #### 🚀 Фреймворки и бэкенд
-  <p align="center">
-    <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
-    <img src="https://img.shields.io/badge/Flask-000000?style=for-the-badge&logo=flask&logoColor=white" alt="Flask" />
-  </p>
-
-  #### 🧰 Инструменты, СУБД и окружение
-  <p align="center">
-    <a href="https://skillicons.dev">
-      <img src="https://skillicons.dev/icons?i=postgres,docker,git,vscode,bash&theme=dark" alt="Tools" />
-    </a>
-  </p>
-
-</div>
-
----
-
-### 📊 Статистика GitHub / GitHub Stats
-
-<div align="center">
-
-  <table border="0">
-    <tr>
-      <td>
-        <img src="https://github-readme-stats.vercel.app/api?username=mahn1&show_icons=true&theme=tokyonight&hide_border=true&count_private=true" alt="mahni's GitHub Stats" height="170"/>
-      </td>
-      <td>
-        <img src="https://github-readme-stats.vercel.app/api/top-langs/?username=mahn1&layout=compact&theme=tokyonight&hide_border=true&langs_count=6" alt="Top Languages" height="170"/>
-      </td>
-    </tr>
-  </table>
-
-  <p align="center">
-    <img src="https://github-readme-streak-stats.herokuapp.com/?user=mahn1&theme=tokyonight&hide_border=true" alt="GitHub Streak" />
-  </p>
-
-</div>
-
----
-
-### 📫 Связь со мной / Connect with me
-
-<div align="center">
+## 💼 Чем могу помочь
 
 <table>
   <tr>
-    <td align="center">
-      <a href="https://t.me/mahnli">
-        <img src="https://raw.githubusercontent.com/maurodesouza/profile-readme-generator/master/src/assets/icons/social/telegram/default.svg" width="40" height="40" alt="Telegram" />
-        <br /><b>Telegram</b>
-        <br /><code>@mahnli</code>
-      </a>
+    <td width="50%" valign="top">
+      <h3>🕷️ Парсинг и сбор данных</h3>
+      Сайты, каталоги, открытые API. С паузами, повторами при ошибках и очисткой результата.
     </td>
-    <td align="center">
-      <a href="mailto:gerasimog67@gmail.com">
-        <img src="https://raw.githubusercontent.com/maurodesouza/profile-readme-generator/master/src/assets/icons/social/gmail/default.svg" width="40" height="40" alt="Gmail" />
-        <br /><b>Email</b>
-        <br /><code>gerasimog67@gmail.com</code>
-      </a>
+    <td width="50%" valign="top">
+      <h3>📊 Отчёты в Excel</h3>
+      Форматирование, фильтры, сводные листы, диаграммы. Отчёт, который не стыдно отправить руководителю.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🗄️ Базы данных PostgreSQL</h3>
+      Проектирование схем, триггеры и функции, сложные запросы, перенос данных из Excel в базу и обратно.
+    </td>
+    <td width="50%" valign="top">
+      <h3>🔄 ETL и интеграции</h3>
+      Сведение данных из разных источников в одну аккуратную таблицу, загрузка по расписанию.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🤖 Telegram-боты</h3>
+      Уведомления, выгрузки и отчёты прямо в мессенджер.
+    </td>
+    <td width="50%" valign="top">
+      <h3>⚡ API на FastAPI</h3>
+      Бэкенд для внутренних сервисов и интеграций с авторизацией по JWT.
     </td>
   </tr>
 </table>
 
-</div>
+## 🚀 Проекты
 
----
+### 📊 [vacancy-parser](https://github.com/mahn1/vacancy-parser)
+
+Собирает вакансии с портала «Работа России» по запросу и региону и за минуту строит Excel-отчёт: таблица с фильтрами, медианные зарплаты, зарплата по опыту с диаграммой, топ работодателей и навыков.
+
+<a href="https://github.com/mahn1/vacancy-parser"><img src="https://raw.githubusercontent.com/mahn1/vacancy-parser/main/docs/summary.png" width="420" alt="Сводка отчёта vacancy-parser"/></a>
+
+`Python` `requests` `openpyxl` `ETL` `Excel`
+
+## 🛠️ Как я работаю
+
+| Шаг | Что происходит |
+|:---:|---|
+| **1** | Разбираюсь в задаче и уточняю детали, прежде чем называть цену |
+| **2** | Называю срок и стоимость заранее, без сюрпризов в конце |
+| **3** | Показываю промежуточный результат, чтобы правки были вовремя |
+| **4** | Сдаю работу с инструкцией по запуску и отвечаю на вопросы после сдачи |
+
+## 🧰 Стек
+
+<p align="left">
+  <img src="https://skillicons.dev/icons?i=python,postgres,fastapi,git,vscode&theme=dark" alt="Python, PostgreSQL, FastAPI, Git, VS Code"/>
+</p>
+
+<p align="left">
+  <img src="https://img.shields.io/badge/Excel-217346?style=flat-square&logo=microsoftexcel&logoColor=white" alt="Excel"/>
+  <img src="https://img.shields.io/badge/openpyxl-3776AB?style=flat-square&logo=python&logoColor=white" alt="openpyxl"/>
+  <img src="https://img.shields.io/badge/requests-3776AB?style=flat-square&logo=python&logoColor=white" alt="requests"/>
+  <img src="https://img.shields.io/badge/SQL-336791?style=flat-square&logo=postgresql&logoColor=white" alt="SQL"/>
+  <img src="https://img.shields.io/badge/Telegram%20Bot%20API-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram Bot API"/>
+</p>
+
+## 📬 Связаться
 
 <div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:21262d&height=100&section=footer" width="100%"/>
+
+**Опишите задачу в Telegram — бесплатно оценю срок и стоимость.**
+
+<a href="https://t.me/mahnli"><img src="https://img.shields.io/badge/%D0%9D%D0%B0%D0%BF%D0%B8%D1%81%D0%B0%D1%82%D1%8C%20%D0%B2%20Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Написать в Telegram"/></a>
+
+<br/><br/>
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:1f6feb,50:161b22,100:0d1117&height=100&section=footer" width="100%" alt=""/>
+
 </div>
