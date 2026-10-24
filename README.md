@@ -70,6 +70,14 @@ Python-разработчик, специализируюсь на **автом�
 
 `Python` `requests` `openpyxl` `ETL` `Excel`
 
+### 🛡️ [PassGuard](https://github.com/mahn1/passguard) · [живое демо](https://passguard.fastapicloud.dev)
+
+Генератор паролей, проверка их надёжности и зашифрованное хранилище с аудитом безопасности: слабые пароли, повторы на разных сайтах, давно не менявшиеся. REST API с JWT, шифрование Fernet, ограничение попыток входа. 50 тестов, CI, Docker, задеплоено в FastAPI Cloud — в демо можно войти одним кликом.
+
+<a href="https://passguard.fastapicloud.dev"><img src="https://raw.githubusercontent.com/mahn1/passguard/main/docs/vault.png" width="420" alt="Хранилище PassGuard"/></a>
+
+`Python` `FastAPI` `SQLAlchemy` `JWT` `pytest` `Docker` `CI/CD`
+
 ### 🌐 Лендинги
 
 <table>
@@ -135,7 +143,7 @@ Python-разработчик, специализируюсь на **автом�
 ## 🧰 Стек
 
 <p align="left">
-  <img src="https://skillicons.dev/icons?i=python,postgres,fastapi,html,css,js,git,vscode&theme=dark" alt="Python, PostgreSQL, FastAPI, HTML, CSS, JavaScript, Git, VS Code"/>
+  <img src="https://skillicons.dev/icons?i=python,postgres,fastapi,docker,html,css,js,git,githubactions&theme=dark" alt="Python, PostgreSQL, FastAPI, Docker, HTML, CSS, JavaScript, Git, GitHub Actions"/>
 </p>
 
 <p align="left">
@@ -143,6 +151,8 @@ Python-разработчик, специализируюсь на **автом�
   <img src="https://img.shields.io/badge/openpyxl-3776AB?style=flat-square&logo=python&logoColor=white" alt="openpyxl"/>
   <img src="https://img.shields.io/badge/requests-3776AB?style=flat-square&logo=python&logoColor=white" alt="requests"/>
   <img src="https://img.shields.io/badge/SQL-336791?style=flat-square&logo=postgresql&logoColor=white" alt="SQL"/>
+  <img src="https://img.shields.io/badge/SQLAlchemy-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white" alt="SQLAlchemy"/>
+  <img src="https://img.shields.io/badge/pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white" alt="pytest"/>
   <img src="https://img.shields.io/badge/Telegram%20Bot%20API-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram Bot API"/>
 </p>
 
