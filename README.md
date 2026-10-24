@@ -7,6 +7,7 @@
   <p>
     <a href="https://t.me/mahnli"><img src="https://img.shields.io/badge/Telegram-@mahnli-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram"/></a>
     <a href="mailto:gerasimog67@gmail.com"><img src="https://img.shields.io/badge/Email-gerasimog67@gmail.com-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email"/></a>
+    <a href="https://mahn1.github.io/"><img src="https://img.shields.io/badge/%D0%A1%D0%B0%D0%B9%D1%82-mahn1.github.io-1F6FEB?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Сайт mahn1.github.io"/></a>
     <img src="https://img.shields.io/badge/%D0%9E%D1%82%D0%BA%D1%80%D1%8B%D1%82%20%D0%B4%D0%BB%D1%8F%20%D0%B7%D0%B0%D0%BA%D0%B0%D0%B7%D0%BE%D0%B2-2EA043?style=for-the-badge&logo=checkmarx&logoColor=white" alt="Открыт для заказов"/>
   </p>
 
@@ -95,6 +96,29 @@ Python-разработчик, специализируюсь на **автом�
       <a href="https://mahn1.github.io/car-tint-landing/">Сайт</a> · <a href="https://github.com/mahn1/car-tint-landing">Код</a>
     </td>
   </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <a href="https://mahn1.github.io/marketplace-landing/"><img src="https://raw.githubusercontent.com/mahn1/marketplace-landing/main/docs/preview.png" alt="Лендинг маркетплейса"/></a>
+      <h4>🛒 Маркетплейс «Полка»</h4>
+      Поиск и каталог, лента товаров с фильтрами и сортировкой, корзина и избранное
+      <br/><br/>
+      <a href="https://mahn1.github.io/marketplace-landing/">Сайт</a> · <a href="https://github.com/mahn1/marketplace-landing">Код</a>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <a href="https://mahn1.github.io/courses-landing/"><img src="https://raw.githubusercontent.com/mahn1/courses-landing/main/docs/preview.png" alt="Лендинг школы веб-разработки"/></a>
+      <h4>💻 Школа веб-разработки</h4>
+      Печатающийся редактор кода с живым превью, программа на вкладках, квиз подбора курса
+      <br/><br/>
+      <a href="https://mahn1.github.io/courses-landing/">Сайт</a> · <a href="https://github.com/mahn1/courses-landing">Код</a>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <a href="https://mahn1.github.io/"><img src="https://raw.githubusercontent.com/mahn1/mahn1.github.io/main/docs/preview.png" alt="Личный сайт mahni"/></a>
+      <h4>🌐 Все проекты на сайте</h4>
+      Услуги, цены и все работы с живыми ссылками в одном месте
+      <br/><br/>
+      <a href="https://mahn1.github.io/">mahn1.github.io</a>
+    </td>
+  </tr>
 </table>
 
 `HTML` `CSS` `JavaScript` `адаптивная вёрстка` `GitHub Pages`
@@ -129,6 +153,7 @@ Python-разработчик, специализируюсь на **автом�
 **Опишите задачу в Telegram — бесплатно оценю срок и стоимость.**
 
 <a href="https://t.me/mahnli"><img src="https://img.shields.io/badge/%D0%9D%D0%B0%D0%BF%D0%B8%D1%81%D0%B0%D1%82%D1%8C%20%D0%B2%20Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Написать в Telegram"/></a>
+<a href="https://mahn1.github.io/"><img src="https://img.shields.io/badge/%D0%9F%D0%BE%D1%80%D1%82%D1%84%D0%BE%D0%BB%D0%B8%D0%BE-mahn1.github.io-1F6FEB?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Портфолио mahn1.github.io"/></a>
 
 <br/><br/>
 
