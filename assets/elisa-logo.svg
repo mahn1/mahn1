@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Elisa">
+  <rect x="2" y="2" width="124" height="124" rx="34" fill="#173327" stroke="#397c53" stroke-width="2"/>
+  <path d="M35 39h58L83 51H50l-5 8h37l-9 11H40l-5 8h41L66 90H25z" fill="#a4ef6b"/>
+  <circle cx="94" cy="87" r="6" fill="#a4ef6b"/>
+</svg>

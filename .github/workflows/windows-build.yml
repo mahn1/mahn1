@@ -1,0 +1,31 @@
+name: Build Elisa for Windows
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build Elisa
+        shell: cmd
+        run: build.bat
+      - name: Upload Windows application
+        uses: actions/upload-artifact@v4
+        with:
+          name: Elisa-Windows-x64
+          path: build/Elisa/
+          if-no-files-found: error

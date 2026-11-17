@@ -1,0 +1,5 @@
+node_modules/
+dist/
+build/
+Elisa.Desktop/bin/
+Elisa.Desktop/obj/
