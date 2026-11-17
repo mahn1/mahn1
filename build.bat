@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Elisa - build
+title Elisa Viora 1.0 - build
 
 where dotnet >nul 2>nul
 if errorlevel 1 (

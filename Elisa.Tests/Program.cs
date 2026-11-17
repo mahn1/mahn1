@@ -63,7 +63,47 @@ try
         agent.Configure("", "another/model");
         await agent.RunAsync("c", "hello");
     }
-    Console.WriteLine("Agent and workspace tests passed");
+    // Persistence and model history survive a fresh agent instance under the same Windows user.
+    string storePath = Path.Combine(temp, "encrypted-state.dat");
+    var store = new LocalStore(storePath);
+    var firstHandler = new FakeHandler(answerReply);
+    using (var first = new Agent(_ => {}, spaces, new HttpClient(firstHandler), store: store))
+    {
+        first.Configure("sk-secret-test", "saved/model");
+        store.FindOrCreate("persisted", "Привет", []).Messages.Add(new ChatItem { Role = "user", Text = "Привет" });
+        store.Save();
+        await first.RunAsync("persisted", "Привет");
+    }
+    Assert(!Encoding.UTF8.GetString(File.ReadAllBytes(storePath)).Contains("sk-secret-test"), "plaintext secret stored");
+    var restored = new LocalStore(storePath);
+    Assert(restored.Data.ApiKey == "sk-secret-test" && restored.Data.Model == "saved/model", "credentials not restored");
+    Assert(restored.Data.Chats.Count == 1 && restored.Data.Chats[0].Messages[0].Text == "Привет", "chat not restored");
+    var nextHandler = new FakeHandler(answerReply);
+    using (var next = new Agent(_ => {}, spaces, new HttpClient(nextHandler), store: restored)) await next.RunAsync("persisted", "Продолжим");
+    var history = JsonNode.Parse(nextHandler.Requests[0])!["messages"]!.AsArray();
+    Assert(history.Count == 4 && history[1]!["content"]!.GetValue<string>() == "Привет", "context not restored");
+    File.WriteAllText(Path.Combine(temp, "broken.dat"), "broken state");
+    var broken = new LocalStore(Path.Combine(temp, "broken.dat"));
+    Assert(broken.LoadError is not null, "corrupt state not reported");
+    Reject(() => broken.Save(), "corrupt state overwritten");
+
+    var attachments = new List<Attachment> {
+        new("paste.txt", "text/plain", Encoding.UTF8.GetBytes("большой текст")),
+        new("image.png", "image/png", new byte[] { 1, 2, 3 }),
+        new("data.bin", "application/octet-stream", new byte[] { 0, 1, 2 }),
+        new("document.pdf", "application/pdf", new byte[] { 37, 80, 68, 70 })
+    };
+    var parts = Attachments.BuildContent("Проверь", attachments).AsArray();
+    Assert(parts[1]!["text"]!.GetValue<string>().Contains("большой текст"), "text attachment missing");
+    Assert(parts[2]!["image_url"]!["url"]!.GetValue<string>().StartsWith("data:image/png;base64,"), "image not attached");
+    Assert(parts[3]!["file"]!["filename"]!.GetValue<string>() == "data.bin", "binary not attached");
+    Assert(parts[4]!["file"]!["file_data"]!.GetValue<string>().StartsWith("data:application/pdf;base64,"), "pdf not attached");
+    var attachHandler = new FakeHandler(answerReply);
+    using (var attaching = new Agent(_ => {}, spaces, new HttpClient(attachHandler), store: restored)) await attaching.RunAsync("file-chat", "", attachments);
+    var payload = JsonNode.Parse(attachHandler.Requests[0])!;
+    Assert(payload["messages"]!.AsArray().Last()!["content"]!.AsArray().Count == 5, "attachments not sent");
+    Assert(payload["plugins"]![0]!["pdf"]!["engine"]!.GetValue<string>() == "cloudflare-ai", "pdf parser not configured");
+    Console.WriteLine("Agent, workspace, attachment and persistence tests passed");
 }
 finally { Directory.Delete(temp, recursive: true); }
 

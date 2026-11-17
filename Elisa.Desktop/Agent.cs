@@ -6,14 +6,14 @@ using System.Text.Json.Nodes;
 
 namespace Elisa.Desktop;
 
-/// <summary>One active agent turn at a time. Neither keys nor transcripts are written to disk.</summary>
+/// <summary>One active agent turn at a time. Local state is encrypted with Windows DPAPI.</summary>
 internal sealed class Agent : IDisposable
 {
     private static readonly Uri Endpoint = new("https://openrouter.ai/api/v1/chat/completions");
     private static readonly HttpClient SharedHttp = new() { Timeout = TimeSpan.FromSeconds(120) };
     private readonly HttpClient http;
     private readonly Func<string, CancellationToken, Task<string>> runCommand;
-    private readonly Dictionary<string, JsonArray> conversations = new();
+    private readonly LocalStore store;
     private readonly Action<object> send;
     private readonly Workspaces workspaces;
     private string key = "";
@@ -32,8 +32,8 @@ internal sealed class Agent : IDisposable
         Если в доступе отказано или нужны права администратора, сообщи об этом пользователю.
         """;
 
-    public Agent(Action<object> send, Workspaces workspaces, HttpClient? http = null, Func<string, CancellationToken, Task<string>>? runCommand = null)
-    { this.send = send; this.workspaces = workspaces; this.http = http ?? SharedHttp; this.runCommand = runCommand ?? RunPowerShellAsync; }
+    public Agent(Action<object> send, Workspaces workspaces, HttpClient? http = null, Func<string, CancellationToken, Task<string>>? runCommand = null, LocalStore? store = null)
+    { this.send = send; this.workspaces = workspaces; this.http = http ?? SharedHttp; this.runCommand = runCommand ?? RunPowerShellAsync; this.store = store ?? new LocalStore(persist: false); key = this.store.Data.ApiKey; model = this.store.Data.Model; }
 
     public void EnsureIdle() { if (active is not null) throw new InvalidOperationException("Дождитесь завершения запроса."); }
 
@@ -66,27 +66,33 @@ internal sealed class Agent : IDisposable
             throw new ArgumentException("Введите API-ключ OpenRouter.");
         if (string.IsNullOrWhiteSpace(modelId) || modelId.Length > 200 || modelId.Any(char.IsWhiteSpace))
             throw new ArgumentException("Введите корректный ID модели OpenRouter.");
-        if (!string.IsNullOrWhiteSpace(apiKey)) key = apiKey.Trim();
-        model = modelId.Trim();
+        string nextKey = string.IsNullOrWhiteSpace(apiKey) ? key : apiKey.Trim();
+        string nextModel = modelId.Trim();
+        string oldKey = store.Data.ApiKey, oldModel = store.Data.Model;
+        store.Data.ApiKey = nextKey; store.Data.Model = nextModel;
+        try { store.Save(); }
+        catch { store.Data.ApiKey = oldKey; store.Data.Model = oldModel; throw; }
+        key = nextKey; model = nextModel;
         send(new { type = "configured", model });
     }
 
     public void Cancel() => active?.Cancel();
 
-    public async Task RunAsync(string conversationId, string text)
+    public async Task RunAsync(string conversationId, string text, IReadOnlyList<Attachment>? attachments = null)
     {
         if (active is not null) throw new InvalidOperationException("Дождитесь завершения предыдущего запроса.");
         if (string.IsNullOrEmpty(key)) throw new InvalidOperationException("Сначала укажите API-ключ OpenRouter в настройках.");
-        if (string.IsNullOrWhiteSpace(conversationId) || conversationId.Length > 100 || string.IsNullOrWhiteSpace(text) || text.Length > 50000)
+        attachments ??= [];
+        if (string.IsNullOrWhiteSpace(conversationId) || conversationId.Length > 100 || (string.IsNullOrWhiteSpace(text) && attachments.Count == 0) || text.Length > 50000)
             throw new ArgumentException("Пустое или слишком длинное сообщение.");
         using var cts = new CancellationTokenSource();
         active = cts;
         string currentKey = key, currentModel = model;
         // Commit only a complete turn so a failed call cannot leave dangling tool_call messages.
-        var history = conversations.TryGetValue(conversationId, out var saved)
+        var history = store.Data.Histories.TryGetValue(conversationId, out var saved)
             ? (JsonArray)saved.DeepClone()
             : new JsonArray(new JsonObject { ["role"] = "system", ["content"] = SystemPrompt });
-        history.Add(new JsonObject { ["role"] = "user", ["content"] = text });
+        history.Add(new JsonObject { ["role"] = "user", ["content"] = Attachments.BuildContent(text, attachments) });
         int calls = 0;
         try
         {
@@ -101,16 +107,18 @@ internal sealed class Agent : IDisposable
                     ["tools"] = AvailableTools(),
                     ["tool_choice"] = "auto"
                 };
+                if (history.ToJsonString().Contains("data:application/pdf;base64,", StringComparison.OrdinalIgnoreCase))
+                    requestBody["plugins"] = new JsonArray(new JsonObject { ["id"] = "file-parser", ["pdf"] = new JsonObject { ["engine"] = "cloudflare-ai" } });
                 using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", currentKey);
-                request.Headers.Add("X-Title", "Elisa");
+                request.Headers.Add("X-Title", "Elisa Viora 1.0");
                 request.Content = new StringContent(requestBody.ToJsonString(), Encoding.UTF8, "application/json");
                 using var response = await http.SendAsync(request, cts.Token);
                 var raw = await response.Content.ReadAsStringAsync(cts.Token);
                 if (!response.IsSuccessStatusCode)
                 {
                     // Upstream bodies are not shown: they may contain sensitive account data.
-                    throw new InvalidOperationException($"Ошибка OpenRouter: HTTP {(int)response.StatusCode}. Проверьте ключ, модель, баланс и лимиты.");
+                    throw new InvalidOperationException($"Ошибка OpenRouter: HTTP {(int)response.StatusCode}. Проверьте ключ, модель, баланс, лимиты и поддержку вложений моделью.");
                 }
                 var root = JsonNode.Parse(raw) ?? throw new InvalidOperationException("Пустой ответ OpenRouter.");
                 var message = root["choices"]?[0]?["message"] as JsonObject
@@ -122,7 +130,8 @@ internal sealed class Agent : IDisposable
                 if (toolCalls is null || toolCalls.Count == 0)
                 {
                     if (string.IsNullOrWhiteSpace(answer)) throw new InvalidOperationException("Модель вернула пустой ответ.");
-                    conversations[conversationId] = history;
+                    store.Data.Histories[conversationId] = history;
+                    store.Save();
                     send(new { type = "answer", conversationId, text = answer });
                     return;
                 }

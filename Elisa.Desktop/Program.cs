@@ -20,17 +20,18 @@ internal sealed class ElisaWindow : Form
     private readonly WebView2 browser = new() { Dock = DockStyle.Fill };
     private readonly Agent agent;
     private readonly Workspaces workspaces = new();
+    private readonly LocalStore store = new();
 
     public ElisaWindow()
     {
-        Text = "Elisa";
+        Text = "Elisa Viora 1.0";
         MinimumSize = new Size(800, 600);
         Size = new Size(1400, 900);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(32, 32, 32);
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Controls.Add(browser);
-        agent = new Agent(Send, workspaces);
+        agent = new Agent(SendAgentEvent, workspaces, store: store);
         FormClosed += (_, _) => agent.Dispose();
         Shown += async (_, _) => await InitializeBrowserAsync();
     }
@@ -79,7 +80,7 @@ internal sealed class ElisaWindow : Form
             using var document = JsonDocument.Parse(e.WebMessageAsJson);
             var root = document.RootElement;
             string type = root.GetProperty("type").GetString() ?? "";
-            if (type == "get_settings") SendSettings();
+            if (type == "get_settings") { SendSettings(); SendState(); }
             else if (type == "add_workspace")
             {
                 agent.EnsureIdle();
@@ -95,11 +96,48 @@ internal sealed class ElisaWindow : Form
             else if (type == "send")
             {
                 conversationId = root.GetProperty("conversationId").GetString() ?? "";
-                await agent.RunAsync(conversationId, root.GetProperty("text").GetString() ?? "");
+                agent.EnsureIdle();
+                if (string.IsNullOrEmpty(store.Data.ApiKey)) throw new InvalidOperationException("Сначала настройте OpenRouter.");
+                string text = root.GetProperty("text").GetString() ?? "";
+                var files = Attachments.Parse(root);
+                if (conversationId.Length > 100 || string.IsNullOrWhiteSpace(conversationId) || text.Length > 50000 || (string.IsNullOrWhiteSpace(text) && files.Count == 0))
+                    throw new ArgumentException("Недопустимое сообщение.");
+                var chat = store.FindOrCreate(conversationId, text, files);
+                chat.Messages.Add(new ChatItem { Role = "user", Text = text, Attachments = files.Select(f => f.Name).ToList() });
+                store.Save();
+                await agent.RunAsync(conversationId, text, files);
             }
         }
-        catch (OperationCanceledException) { Send(new { type = "error", conversationId, text = "Запрос остановлен. Выполненные изменения не отменяются." }); }
-        catch (Exception ex) { Send(new { type = "error", conversationId, text = ex.Message }); }
+        catch (OperationCanceledException) { SendAgentEvent(new { type = "error", conversationId, text = "Запрос остановлен. Выполненные изменения не отменяются." }); }
+        catch (Exception ex) { SendAgentEvent(new { type = "error", conversationId, text = ex.Message }); }
+    }
+
+    private void SendState()
+    {
+        Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(store.Data.ApiKey), model = store.Data.Model,
+            chats = store.Data.Chats.Select(c => new { id = c.Id, title = c.Title, preview = c.Preview,
+                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments }) }) });
+        if (store.LoadError is not null) Send(new { type = "persistence_warning", text = store.LoadError });
+    }
+
+    private void SendAgentEvent(object message)
+    {
+        using var data = JsonDocument.Parse(JsonSerializer.Serialize(message));
+        var root = data.RootElement;
+        string type = root.GetProperty("type").GetString() ?? "";
+        if (type is "answer" or "step" or "tool_result" or "error")
+        {
+            string id = root.TryGetProperty("conversationId", out var idNode) ? idNode.GetString() ?? "" : "";
+            var chat = store.Data.Chats.Find(c => c.Id == id);
+            if (chat is not null)
+            {
+                chat.Messages.Add(new ChatItem { Role = type, Text = root.GetProperty("text").GetString() ?? "",
+                    Command = root.TryGetProperty("command", out var command) ? command.GetString() : null });
+                try { store.Save(); }
+                catch (Exception) { Send(new { type = "persistence_warning", text = "Не удалось сохранить историю. Проверьте доступ к папке Elisa." }); }
+            }
+        }
+        Send(message);
     }
 
     private void SendSettings() => Send(new { type = "workspace_settings", paths = workspaces.Settings.Paths, unrestricted = workspaces.Settings.UnrestrictedPowerShell });
