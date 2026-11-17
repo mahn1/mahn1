@@ -123,7 +123,7 @@ internal sealed class Agent : IDisposable
                     string? command = null;
                     try { if (args is not null) command = JsonNode.Parse(args)?["command"]?.GetValue<string>(); }
                     catch (JsonException) { /* Model returned invalid arguments. */ }
-                    if (name != "run_powershell" || string.IsNullOrWhiteSpace(command) || command.Length > 16000)
+                    if (name != "run_powershell" || string.IsNullOrWhiteSpace(command) || command.Length > 10000)
                         result = "Ошибка: неизвестный инструмент или недопустимая команда.";
                     else if (!approve(command))
                         result = "Пользователь отклонил выполнение команды. Команда не запускалась.";
@@ -170,10 +170,10 @@ internal sealed class Agent : IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(60));
         Task<string> stdout = ReadLimitedAsync(process.StandardOutput), stderr = ReadLimitedAsync(process.StandardError);
-        try { await process.WaitForExitAsync(timeout.Token); }
+        try { await Task.WhenAll(process.WaitForExitAsync(timeout.Token), stdout, stderr).WaitAsync(timeout.Token); }
         catch (OperationCanceledException)
         {
-            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
             await process.WaitForExitAsync();
             if (cancellationToken.IsCancellationRequested) throw;
             return "Время ожидания команды истекло (60 секунд). Процесс остановлен; изменения, уже внесённые командой, не отменены.";
