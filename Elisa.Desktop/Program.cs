@@ -25,7 +25,7 @@ internal sealed class ElisaWindow : Form
         MinimumSize = new Size(800, 600);
         Size = new Size(1400, 900);
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(16, 21, 18);
+        BackColor = Color.FromArgb(32, 32, 32);
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Controls.Add(browser);
         agent = new Agent(Send, ApproveCommand);
@@ -94,11 +94,11 @@ internal sealed class ElisaWindow : Form
     {
         using var dialog = new Form { Text = "Elisa — подтверждение команды", Width = 760, Height = 470,
             MinimumSize = new Size(650, 400), StartPosition = FormStartPosition.CenterParent,
-            BackColor = Color.FromArgb(20, 27, 22), ForeColor = Color.White, ShowInTaskbar = false };
+            BackColor = Color.FromArgb(32, 32, 32), ForeColor = Color.White, ShowInTaskbar = false };
         var label = new Label { Dock = DockStyle.Top, Height = 94, Padding = new Padding(16),
             Text = "Агент просит доступ к Windows. Команда будет выполнена БЕЗ песочницы с вашими правами.\nОна может читать, изменять или удалять файлы и отправлять данные в сеть. Проверьте всю команду перед запуском." };
         var code = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both,
-            WordWrap = false, Text = command, Font = new Font("Consolas", 10), BackColor = Color.FromArgb(9, 14, 10), ForeColor = Color.FromArgb(198, 237, 183) };
+            WordWrap = false, Text = command, Font = new Font("Consolas", 10), BackColor = Color.FromArgb(22, 22, 22), ForeColor = Color.FromArgb(225, 225, 225) };
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 62, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(10) };
         var reject = new Button { Text = "Отклонить", Width = 130, Height = 36, DialogResult = DialogResult.Cancel, ForeColor = Color.Black };
         var allow = new Button { Text = "Выполнить", Width = 130, Height = 36, DialogResult = DialogResult.OK, ForeColor = Color.Black };
