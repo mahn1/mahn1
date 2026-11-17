@@ -3,3 +3,5 @@ dist/
 build/
 Elisa.Desktop/bin/
 Elisa.Desktop/obj/
+Elisa.Tests/bin/
+Elisa.Tests/obj/
