@@ -1,6 +1,7 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using System.Text.Json;
+using System.Runtime.InteropServices;
 
 namespace Elisa.Desktop;
 
@@ -18,6 +19,7 @@ internal sealed class ElisaWindow : Form
 {
     private readonly WebView2 browser = new() { Dock = DockStyle.Fill };
     private readonly Agent agent;
+    private readonly Workspaces workspaces = new();
 
     public ElisaWindow()
     {
@@ -28,7 +30,7 @@ internal sealed class ElisaWindow : Form
         BackColor = Color.FromArgb(32, 32, 32);
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Controls.Add(browser);
-        agent = new Agent(Send, ApproveCommand);
+        agent = new Agent(Send, workspaces);
         FormClosed += (_, _) => agent.Dispose();
         Shown += async (_, _) => await InitializeBrowserAsync();
     }
@@ -77,7 +79,17 @@ internal sealed class ElisaWindow : Form
             using var document = JsonDocument.Parse(e.WebMessageAsJson);
             var root = document.RootElement;
             string type = root.GetProperty("type").GetString() ?? "";
-            if (type == "configure")
+            if (type == "get_settings") SendSettings();
+            else if (type == "add_workspace")
+            {
+                agent.EnsureIdle();
+                using var picker = new FolderBrowserDialog { Description = "Выберите рабочую область Elisa", UseDescriptionForTitle = true };
+                if (picker.ShowDialog(this) == DialogResult.OK) { workspaces.Add(picker.SelectedPath); SendSettings(); }
+            }
+            else if (type == "remove_workspace") { agent.EnsureIdle(); workspaces.Remove(root.GetProperty("path").GetString() ?? ""); SendSettings(); }
+            else if (type == "set_unrestricted") { agent.EnsureIdle(); workspaces.SetUnrestricted(root.GetProperty("enabled").GetBoolean()); SendSettings(); }
+            else if (type == "add_to_path") { agent.EnsureIdle(); AddToPath(); }
+            else if (type == "configure")
                 agent.Configure(root.GetProperty("key").GetString() ?? "", root.GetProperty("model").GetString() ?? "");
             else if (type == "cancel") agent.Cancel();
             else if (type == "send")
@@ -90,21 +102,27 @@ internal sealed class ElisaWindow : Form
         catch (Exception ex) { Send(new { type = "error", conversationId, text = ex.Message }); }
     }
 
-    private bool ApproveCommand(string command)
+    private void SendSettings() => Send(new { type = "workspace_settings", paths = workspaces.Settings.Paths, unrestricted = workspaces.Settings.UnrestrictedPowerShell });
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
+
+    private void AddToPath()
     {
-        using var dialog = new Form { Text = "Elisa — подтверждение команды", Width = 760, Height = 470,
-            MinimumSize = new Size(650, 400), StartPosition = FormStartPosition.CenterParent,
-            BackColor = Color.FromArgb(32, 32, 32), ForeColor = Color.White, ShowInTaskbar = false };
-        var label = new Label { Dock = DockStyle.Top, Height = 94, Padding = new Padding(16),
-            Text = "Агент просит доступ к Windows. Команда будет выполнена БЕЗ песочницы с вашими правами.\nОна может читать, изменять или удалять файлы и отправлять данные в сеть. Проверьте всю команду перед запуском." };
-        var code = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both,
-            WordWrap = false, Text = command, Font = new Font("Consolas", 10), BackColor = Color.FromArgb(22, 22, 22), ForeColor = Color.FromArgb(225, 225, 225) };
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 62, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(10) };
-        var reject = new Button { Text = "Отклонить", Width = 130, Height = 36, DialogResult = DialogResult.Cancel, ForeColor = Color.Black };
-        var allow = new Button { Text = "Выполнить", Width = 130, Height = 36, DialogResult = DialogResult.OK, ForeColor = Color.Black };
-        buttons.Controls.Add(reject); buttons.Controls.Add(allow);
-        dialog.Controls.Add(code); dialog.Controls.Add(label); dialog.Controls.Add(buttons);
-        dialog.AcceptButton = reject; dialog.CancelButton = reject;
-        return dialog.ShowDialog(this) == DialogResult.OK;
+        string folder = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+        if (folder.Contains(';')) throw new InvalidOperationException("Папка Elisa содержит точку с запятой и не может быть добавлена в PATH.");
+        string userPath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
+        bool exists = userPath.Split(';', StringSplitOptions.RemoveEmptyEntries).Any(p =>
+            string.Equals(Path.TrimEndingDirectorySeparator(Environment.ExpandEnvironmentVariables(p.Trim().Trim('"'))), folder, StringComparison.OrdinalIgnoreCase));
+        if (!exists)
+        {
+            string updated = string.IsNullOrWhiteSpace(userPath) ? folder : userPath.TrimEnd(';') + ";" + folder;
+            if (updated.Length > 32767) throw new InvalidOperationException("PATH слишком длинный.");
+            Environment.SetEnvironmentVariable("PATH", updated, EnvironmentVariableTarget.User);
+            string processPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+            Environment.SetEnvironmentVariable("PATH", processPath.TrimEnd(';') + ";" + folder);
+            SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 0x0002, 5000, out _);
+        }
+        Send(new { type = "path_added", path = folder });
     }
 }

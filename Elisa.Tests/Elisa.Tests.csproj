@@ -5,5 +5,5 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-  <ItemGroup><Compile Include="../Elisa.Desktop/Agent.cs" Link="Agent.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../Elisa.Desktop/Agent.cs" Link="Agent.cs" /><Compile Include="../Elisa.Desktop/Workspaces.cs" Link="Workspaces.cs" /></ItemGroup>
 </Project>
