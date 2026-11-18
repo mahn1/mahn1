@@ -1,0 +1,41 @@
+{
+  "name": "pisa-remotion",
+  "version": "1.0.0",
+  "description": "Тестовая вертикальная 2D-анимация на Remotion: Пизанская башня с русскими субтитрами",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "studio": "remotion studio",
+    "render": "remotion render PisaRu out/pisa-ru.mp4",
+    "still": "remotion still PisaRu out/frame.png",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mahn1/mahn1.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mahn1/mahn1/issues"
+  },
+  "homepage": "https://github.com/mahn1/mahn1#readme",
+  "dependencies": {
+    "@fontsource/montserrat": "^5.3.0",
+    "@remotion/cli": "^4.0.544",
+    "@remotion/fonts": "^4.0.544",
+    "@remotion/player": "^4.0.544",
+    "@sparticuz/chromium": "^153.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "remotion": "^4.0.544",
+    "vite": "^6.4.6"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^5.9.3"
+  },
+  "private": true
+}
