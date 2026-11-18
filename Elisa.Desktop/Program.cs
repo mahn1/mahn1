@@ -1,6 +1,7 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using System.Text.Json;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Elisa.Desktop;
@@ -93,6 +94,21 @@ internal sealed class ElisaWindow : Form
             else if (type == "configure")
                 agent.Configure(root.GetProperty("key").GetString() ?? "", root.GetProperty("model").GetString() ?? "");
             else if (type == "cancel") agent.Cancel();
+            else if (type == "copy_text")
+            {
+                string value = root.GetProperty("text").GetString() ?? "";
+                if (value.Length > 1000000) throw new ArgumentException("Текст слишком большой для копирования.");
+                if (!string.IsNullOrEmpty(value)) Clipboard.SetText(value);
+                Send(new { type = "copied" });
+            }
+            else if (type == "open_link")
+            {
+                string url = root.GetProperty("url").GetString() ?? "";
+                if (url.Length > 4096 || !Uri.TryCreate(url, UriKind.Absolute, out var target) ||
+                    (target.Scheme != Uri.UriSchemeHttp && target.Scheme != Uri.UriSchemeHttps))
+                    throw new ArgumentException("Разрешены только ссылки HTTP и HTTPS.");
+                Process.Start(new ProcessStartInfo(target.AbsoluteUri) { UseShellExecute = true });
+            }
             else if (type == "send")
             {
                 conversationId = root.GetProperty("conversationId").GetString() ?? "";
@@ -116,7 +132,7 @@ internal sealed class ElisaWindow : Form
     {
         Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(store.Data.ApiKey), model = store.Data.Model,
             chats = store.Data.Chats.Select(c => new { id = c.Id, title = c.Title, preview = c.Preview,
-                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments }) }) });
+                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, toolId = m.ToolId, toolName = m.ToolName, toolStatus = m.ToolStatus }) }) });
         if (store.LoadError is not null) Send(new { type = "persistence_warning", text = store.LoadError });
     }
 
@@ -125,14 +141,24 @@ internal sealed class ElisaWindow : Form
         using var data = JsonDocument.Parse(JsonSerializer.Serialize(message));
         var root = data.RootElement;
         string type = root.GetProperty("type").GetString() ?? "";
-        if (type is "answer" or "step" or "tool_result" or "error")
+        if (type is "answer" or "step" or "tool_result" or "error" or "tool_start" or "tool_finish")
         {
             string id = root.TryGetProperty("conversationId", out var idNode) ? idNode.GetString() ?? "" : "";
             var chat = store.Data.Chats.Find(c => c.Id == id);
             if (chat is not null)
             {
-                chat.Messages.Add(new ChatItem { Role = type, Text = root.GetProperty("text").GetString() ?? "",
-                    Command = root.TryGetProperty("command", out var command) ? command.GetString() : null });
+                if (type == "tool_finish")
+                {
+                    string toolId = root.GetProperty("toolId").GetString() ?? "";
+                    var item = chat.Messages.LastOrDefault(m => m.Role == "tool_start" && m.ToolId == toolId);
+                    if (item is not null) { item.Text = root.GetProperty("text").GetString() ?? ""; item.ToolStatus = root.GetProperty("toolStatus").GetString(); }
+                }
+                else if (type == "tool_start")
+                    chat.Messages.Add(new ChatItem { Role = type, ToolId = root.GetProperty("toolId").GetString(),
+                        ToolName = root.GetProperty("toolName").GetString(), Command = root.GetProperty("command").GetString(), ToolStatus = "running" });
+                else
+                    chat.Messages.Add(new ChatItem { Role = type, Text = root.GetProperty("text").GetString() ?? "",
+                        Command = root.TryGetProperty("command", out var command) ? command.GetString() : null });
                 try { store.Save(); }
                 catch (Exception) { Send(new { type = "persistence_warning", text = "Не удалось сохранить историю. Проверьте доступ к папке Elisa." }); }
             }

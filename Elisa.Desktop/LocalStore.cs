@@ -16,6 +16,9 @@ internal sealed class ChatItem
     public string Role { get; set; } = "";
     public string Text { get; set; } = "";
     public string? Command { get; set; }
+    public string? ToolId { get; set; }
+    public string? ToolName { get; set; }
+    public string? ToolStatus { get; set; }
     public List<string> Attachments { get; set; } = [];
 }
 internal sealed class SavedState
@@ -45,6 +48,11 @@ internal sealed class LocalStore
             byte[] encrypted = File.ReadAllBytes(this.path);
             byte[] plaintext = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
             Data = JsonSerializer.Deserialize<SavedState>(plaintext) ?? throw new JsonException("Пустые данные.");
+            foreach (var item in Data.Chats.SelectMany(c => c.Messages).Where(m => m.ToolStatus == "running"))
+            {
+                item.ToolStatus = "interrupted";
+                item.Text = "Приложение было закрыто во время выполнения. Проверьте результат вручную.";
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or JsonException)
         {

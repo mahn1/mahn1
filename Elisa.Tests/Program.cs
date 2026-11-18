@@ -42,11 +42,14 @@ try
         var handler = new FakeHandler(toolReply, answerReply);
         var events = new List<string>();
         using var agent = new Agent(x => events.Add(JsonSerializer.Serialize(x)), spaces, new HttpClient(handler),
-            (command, token) => { executed++; return Task.FromResult("успех"); });
+            (command, token) => { Assert(events.Any(e => e.Contains("tool_start") && e.Contains("Get-Location")), "command not shown before execution"); executed++; return Task.FromResult("успех"); });
         agent.Configure("secret", "test/model");
         await agent.RunAsync("chat-1", "Проверь папку");
         Assert(executed == (enabled ? 1 : 0), "PowerShell mode not enforced");
-        Assert(events.Any(e => e.Contains("tool_result")) && events.Any(e => e.Contains("answer")), "missing events");
+        Assert(events.Any(e => e.Contains("tool_start") && e.Contains("Get-Location")) && events.Any(e => e.Contains("tool_finish")) && events.Any(e => e.Contains("answer")), "missing live events");
+        var begin = events.FindIndex(e => e.Contains("tool_start"));
+        var end = events.FindIndex(e => e.Contains("tool_finish"));
+        Assert(begin >= 0 && end > begin && events[end].Contains(enabled ? "done" : "error"), "wrong event order or status");
         Assert(handler.Requests.Count == 2 && !handler.Requests.Any(r => r.Contains("secret")), "requests or key");
         var first = JsonNode.Parse(handler.Requests[0])!;
         Assert(first["tools"]!.AsArray().Any(t => t?["function"]?["name"]?.GetValue<string>() == "run_powershell") == enabled, "wrong tool exposure");
@@ -56,6 +59,22 @@ try
     }
     await CheckPowerShellAsync(false);
     await CheckPowerShellAsync(true);
+    var failureEvents = new List<string>();
+    using (var failing = new Agent(e => failureEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(new FakeHandler(toolReply, answerReply)),
+        (command, token) => Task.FromResult("Код выхода: 1\nstdout:\n\nstderr:\nfail")))
+    {
+        failing.Configure("secret", "test/model");
+        await failing.RunAsync("failed", "test");
+        Assert(failureEvents.Any(e => e.Contains("tool_finish") && e.Contains("error")), "nonzero exit not reported as error");
+    }
+    var cancelledEvents = new List<string>();
+    using (var cancelled = new Agent(e => cancelledEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(new FakeHandler(toolReply)),
+        (command, token) => throw new OperationCanceledException()))
+    {
+        cancelled.Configure("secret", "test/model");
+        try { await cancelled.RunAsync("cancelled", "test"); throw new Exception("cancellation was ignored"); } catch (OperationCanceledException) { }
+        Assert(cancelledEvents.Any(e => e.Contains("tool_finish") && e.Contains("interrupted")), "interrupted tool was not reported");
+    }
     using (var agent = new Agent(_ => {}, spaces, new HttpClient(new FakeHandler(answerReply))))
     {
         try { await agent.RunAsync("c", "test"); throw new Exception("missing key accepted"); } catch (InvalidOperationException) { }
@@ -78,6 +97,10 @@ try
     var restored = new LocalStore(storePath);
     Assert(restored.Data.ApiKey == "sk-secret-test" && restored.Data.Model == "saved/model", "credentials not restored");
     Assert(restored.Data.Chats.Count == 1 && restored.Data.Chats[0].Messages[0].Text == "Привет", "chat not restored");
+    restored.Data.Chats[0].Messages.Add(new ChatItem { Role = "tool_start", ToolId = "abc", ToolName = "run_powershell", Command = "Get-Location", ToolStatus = "running" });
+    restored.Save();
+    var afterRestart = new LocalStore(storePath);
+    Assert(afterRestart.Data.Chats[0].Messages[^1].ToolStatus == "interrupted" && afterRestart.Data.Chats[0].Messages[^1].Command == "Get-Location", "unfinished activity not restored");
     var nextHandler = new FakeHandler(answerReply);
     using (var next = new Agent(_ => {}, spaces, new HttpClient(nextHandler), store: restored)) await next.RunAsync("persisted", "Продолжим");
     var history = JsonNode.Parse(nextHandler.Requests[0])!["messages"]!.AsArray();

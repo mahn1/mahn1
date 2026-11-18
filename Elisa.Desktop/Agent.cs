@@ -145,32 +145,56 @@ internal sealed class Agent : IDisposable
                     string result;
                     string? name = call?["function"]?["name"]?.GetValue<string>();
                     string? args = call?["function"]?["arguments"]?.GetValue<string>();
-                    string action = name ?? "unknown";
+                    string toolId = Guid.NewGuid().ToString("N");
+                    string command = args ?? "{}";
+                    JsonNode? parsed = null;
                     try
                     {
-                        var parsed = JsonNode.Parse(args ?? "{}");
+                        parsed = JsonNode.Parse(command);
+                        if (name == "run_powershell") command = parsed?["command"]?.GetValue<string>() ?? command;
+                        else if (parsed is not null) command = parsed.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+                    }
+                    catch (Exception ex) when (ex is JsonException or InvalidOperationException) { /* Show raw arguments if invalid. */ }
+                    send(new { type = "tool_start", conversationId, toolId, toolName = name ?? "unknown", command });
+                    // Let WebView render the command before running even a synchronous file operation.
+                    await Task.Yield();
+                    bool failed = false;
+                    try
+                    {
+                        cts.Token.ThrowIfCancellationRequested();
                         if (name == "run_powershell")
                         {
                             if (!workspaces.Settings.UnrestrictedPowerShell) throw new UnauthorizedAccessException("Полный доступ PowerShell выключен.");
-                            string command = parsed?["command"]?.GetValue<string>() ?? "";
-                            if (string.IsNullOrWhiteSpace(command) || command.Length > 10000) throw new ArgumentException("Недопустимая команда.");
-                            action = command;
+                            string script = parsed?["command"]?.GetValue<string>() ?? "";
+                            if (string.IsNullOrWhiteSpace(script) || script.Length > 10000) throw new ArgumentException("Недопустимая команда.");
                             send(new { type = "status", conversationId, text = "Выполняю PowerShell…" });
-                            result = await runCommand(command, cts.Token);
+                            result = await runCommand(script, cts.Token);
+                            const string exitPrefix = "Код выхода: ";
+                            if (result.StartsWith(exitPrefix, StringComparison.Ordinal))
+                            {
+                                string exitLine = result[exitPrefix.Length..].Split('\n', 2)[0].Trim();
+                                if (int.TryParse(exitLine, out int exitCode) && exitCode != 0) failed = true;
+                            }
+                            else if (result.StartsWith("Время ожидания команды истекло", StringComparison.Ordinal)) failed = true;
                         }
                         else
                         {
                             send(new { type = "status", conversationId, text = "Работаю с файлами…" });
                             result = workspaces.Execute(name ?? "", parsed);
-                            action = $"{name}: {args}";
                         }
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    catch (OperationCanceledException)
                     {
+                        send(new { type = "tool_finish", conversationId, toolId, text = "Действие остановлено. Уже внесённые изменения не отменяются.", toolStatus = "interrupted" });
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        failed = true;
                         result = "Ошибка: " + ex.Message;
                     }
                     if (result.Length > MaxOutput) result = result[..MaxOutput] + "\n[Вывод обрезан]";
-                    send(new { type = "tool_result", conversationId, command = action, text = result });
+                    send(new { type = "tool_finish", conversationId, toolId, text = result, toolStatus = failed ? "error" : "done" });
                     history.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = callId, ["content"] = result });
                 }
             }

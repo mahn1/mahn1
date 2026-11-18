@@ -1,8 +1,10 @@
 import React, {useState, useRef, useEffect} from 'react';
 import {createRoot} from 'react-dom/client';
-import {PanelLeftClose, PanelLeftOpen, SquarePen, Search, MessageSquare, ChevronRight, MoreHorizontal, ArrowUp, SlidersHorizontal, Code2, Lightbulb, PenLine, BookOpen, Sparkles, ArrowUpRight, X, Globe2, Clock3, Menu, Square, ShieldAlert, TerminalSquare, FolderPlus, Trash2, FolderClosed, Paperclip, FileText, Image as ImageIcon} from 'lucide-react';
+import {PanelLeftClose, PanelLeftOpen, SquarePen, Search, MessageSquare, ChevronRight, MoreHorizontal, ArrowUp, SlidersHorizontal, Code2, Lightbulb, PenLine, BookOpen, Sparkles, ArrowUpRight, X, Globe2, Clock3, Menu, Square, ShieldAlert, TerminalSquare, FolderPlus, Trash2, FolderClosed, Paperclip, FileText, Copy, ChevronDown, CheckCircle2, CircleAlert} from 'lucide-react';
 import './styles.css';
 import logo from '../assets/elisa-logo.svg';
+import Markdown from './Markdown.jsx';
+import {updateToolMessages} from './chatEvents.js';
 
 const prompts = [
   {icon: Code2, label: 'Написать код', text: 'Помоги написать код для моего проекта'},
@@ -47,8 +49,10 @@ function App() {
       }
       if (data.type === 'persistence_warning') setToast(data.text);
       if (data.type === 'workspace_settings') {setPaths(data.paths);setUnrestricted(data.unrestricted);}
+      if (data.type === 'copied') setToast('Скопировано.');
       if (data.type === 'path_added') setToast('Папка Elisa добавлена в PATH. Перезапустите терминал.');
       if (data.type === 'status') setStatus(data.text);
+      if (data.type === 'tool_start' || data.type === 'tool_finish') setMessages(prev=>({...prev,[data.conversationId]:updateToolMessages(prev[data.conversationId]||[],data)}));
       if (['answer','step','tool_result'].includes(data.type)) {
         setMessages(prev=>({...prev,[data.conversationId]:[...(prev[data.conversationId]||[]),{role:data.type,text:data.text,command:data.command}]}));
         if (data.type === 'answer') {setBusy(false);setStatus('');}
@@ -110,6 +114,14 @@ function App() {
     window.chrome.webview.postMessage({type:'configure',key:apiKey,model:modelInput});
   };
   const desktopAction = (message) => { if (!desktop) {setToast('Доступно в Windows-приложении Elisa.exe.');return;} window.chrome.webview.postMessage(message); };
+  const copyText = async text => {
+    if (desktop) {window.chrome.webview.postMessage({type:'copy_text',text});return;}
+    try {await navigator.clipboard.writeText(text);setToast('Скопировано.');} catch {setToast('Не удалось скопировать текст.');}
+  };
+  const openLink = (event,href) => {
+    if (!href || !/^https?:\/\//i.test(href)) {event.preventDefault();return;}
+    if (desktop) {event.preventDefault();window.chrome.webview.postMessage({type:'open_link',url:href});}
+  };
   const current = chats.find(c=>c.id===active);
   const filtered = chats.filter(c=>c.title.toLowerCase().includes(search.toLowerCase()));
   return <div className={'app-shell '+(dragging?'dragging':'')} onDragOver={event=>{if (event.dataTransfer.types.includes('Files')) {event.preventDefault();setDragging(true);}}} onDragLeave={event=>{if (!event.currentTarget.contains(event.relatedTarget))setDragging(false)}} onDrop={handleDrop}>
@@ -122,7 +134,7 @@ function App() {
     </aside>}
     <main className="main">
       <header className="topbar"><div className="top-left">{!sidebar&&<button className="icon-button" onClick={()=>setSidebar(true)} title="Открыть панель"><PanelLeftOpen size={19}/></button>}<span>{active?'Чат':'Личное пространство'}</span>{active&&<><ChevronRight size={14}/><strong>{current?.title}</strong></>}</div><div className="top-right"><span className="connection"><span className={"connection-dot "+(configured?"connected":"")}/> {configured?'OpenRouter настроен':'Не подключено'}</span><button className="icon-button mobile-menu" onClick={()=>setSidebar(!sidebar)} title="Меню"><Menu size={19}/></button><button className="icon-button top-settings" title="Настройки" onClick={()=>setModal('settings')}><SlidersHorizontal size={17}/></button></div></header>
-      {active ? <section className="conversation"><div className="conversation-inner"><div className="conversation-title"><span className="tiny-star">✳</span><span>Личное пространство</span></div><h2>{current?.title}</h2>{(messages[active]||[]).map((message,i)=>message.role==='user'?<div className="message user-message" key={i}>{message.text}{message.attachments?.length>0&&<div className="message-files">{message.attachments.map((name,j)=><span key={j}><Paperclip size={13}/>{name}</span>)}</div>}</div>:message.role==='tool_result'?<details className="tool-result" key={i}><summary><TerminalSquare size={16}/> Результат действия</summary>{message.command&&<><strong>Команда</strong><pre>{message.command}</pre></>}<strong>Результат</strong><pre>{message.text}</pre></details>:<div className={'assistant-message '+(message.role==='error'?'error-message':'')} key={i}><Mark small/><div><strong>{message.role==='error'?'Ошибка':'Elisa'}</strong><p>{message.text}</p></div></div>)}{busy&&status&&<div className="agent-status"><span className="connection-dot"/>{status}</div>}<div ref={endRef}/></div><div className="conversation-composer"><Composer {...{draft,setDraft,submit,model,textarea,busy,attachments,setAttachments,addFiles,handlePaste,dragging}} settings={()=>setModal('settings')} cancel={()=>window.chrome.webview.postMessage({type:'cancel'})}/><div className="disclaimer">{unrestricted?'Полный доступ к Windows включён. Действия выполняются без подтверждений.':'Файловые действия выполняются без подтверждений в рабочих областях.'}</div></div></section> : <section className="home-view">
+      {active ? <section className="conversation"><div className="conversation-inner"><div className="conversation-title"><span className="tiny-star">✳</span><span>Личное пространство</span></div><h2>{current?.title}</h2>{(messages[active]||[]).map((message,i)=>message.role==='user'?<div className="message user-message" key={i}>{message.text}{message.attachments?.length>0&&<div className="message-files">{message.attachments.map((name,j)=><span key={j}><Paperclip size={13}/>{name}</span>)}</div>}</div>:(message.role==='tool_result'||message.role==='tool_start')?<ToolActivity key={message.toolId||i} message={message} onCopy={copyText}/>:<div className={'assistant-message '+(message.role==='error'?'error-message':'')} key={i}><Mark small/><div className="assistant-content"><strong>{message.role==='error'?'Ошибка':'Elisa'}</strong><Markdown text={message.text} onCopy={copyText} onOpen={openLink}/></div></div>)}{busy&&status&&<div className="agent-status"><span className="connection-dot"/>{status}</div>}<div ref={endRef}/></div><div className="conversation-composer"><Composer {...{draft,setDraft,submit,model,textarea,busy,attachments,setAttachments,addFiles,handlePaste,dragging}} settings={()=>setModal('settings')} cancel={()=>window.chrome.webview.postMessage({type:'cancel'})}/><div className="disclaimer">{unrestricted?'Полный доступ к Windows включён. Действия выполняются без подтверждений.':'Файловые действия выполняются без подтверждений в рабочих областях.'}</div></div></section> : <section className="home-view">
         <div className="welcome"><div className="welcome-icon"><img src={logo} alt="Логотип Elisa"/></div><div className="greeting-overline">ELISA VIORA 1.0 · ВАШЕ ПРОСТРАНСТВО ДЛЯ ИДЕЙ</div><h1>Чем займёмся сегодня<span>?</span></h1><p>Большие идеи начинаются с простого вопроса.</p></div>
         <Composer {...{draft,setDraft,submit,model,textarea,busy,attachments,setAttachments,addFiles,handlePaste,dragging}} settings={()=>setModal('settings')} cancel={()=>window.chrome.webview.postMessage({type:'cancel'})}/>
         <div className="prompt-list">{prompts.map(({icon:Icon,label,text})=><button key={label} onClick={()=>{setDraft(text);textarea.current?.focus()}}><Icon size={15}/>{label}<ArrowUpRight size={13} className="prompt-arrow"/></button>)}</div>
@@ -147,6 +159,18 @@ function App() {
     {dragging&&<div className="drop-overlay"><Paperclip size={28}/><strong>Отпустите файлы, чтобы прикрепить</strong><span>До 8 файлов · до 12 МБ всего</span></div>}
     {toast&&<div className="toast">{toast}</div>}
   </div>
+}
+const toolTitles = {run_powershell:'PowerShell', list_workspaces:'Рабочие области', list_files:'Список файлов', read_file:'Чтение файла', write_file:'Запись файла', create_directory:'Создание папки'};
+function ToolActivity({message,onCopy}) {
+  const [expanded,setExpanded] = useState(true);
+  const state = message.toolStatus || 'done';
+  const label = state==='running'?'Выполняется':state==='error'?'Ошибка':state==='interrupted'?'Остановлено':'Завершено';
+  return <section className="activity-card"><button className="activity-header" onClick={()=>setExpanded(!expanded)} aria-expanded={expanded}>
+    <span className="activity-icon"><TerminalSquare size={16}/></span><span className="activity-title">{toolTitles[message.toolName] || message.toolName || 'Действие агента'}<small>Действие агента</small></span>
+    <span className={'activity-status status-'+state}>{state==='running'?<span className="activity-spinner"/>:state==='done'?<CheckCircle2 size={13}/>:<CircleAlert size={13}/>} {label}</span><ChevronDown size={16} className={expanded?'activity-chevron open':'activity-chevron'}/>
+  </button>{expanded&&<div className="activity-body">{message.command&&<><div className="activity-label"><span>{message.toolName==='run_powershell'?'КОМАНДА':'ПАРАМЕТРЫ'}</span><button onClick={()=>onCopy(message.command)} aria-label="Копировать команду"><Copy size={13}/> Копировать</button></div><pre>{message.command}</pre></>}
+    {state==='running'?<div className="activity-pending">Ожидание результата…</div>:<><div className="activity-label"><span>РЕЗУЛЬТАТ</span>{message.text&&<button onClick={()=>onCopy(message.text)} aria-label="Копировать результат"><Copy size={13}/> Копировать</button>}</div><pre className="activity-output">{message.text || 'Нет вывода.'}</pre></>}
+  </div>}</section>;
 }
 function AttachmentChip({file,onRemove}) {
   const [preview,setPreview]=useState('');
