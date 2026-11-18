@@ -161,6 +161,38 @@ try
     using (var usageAgent = new Agent(e => usageEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(new FakeHandler(usageReply)), store: restored)) await usageAgent.RunAsync("usage-chat", "Hello");
     Assert(restored.Data.Usage["vendor/real-model"].TotalTokens == 40 && usageEvents.Any(e=>e.Contains("usage_updated")), "response usage not captured");
     Assert(usageEvents.Any(e=>e.Contains("thinking_start")) && usageEvents.Any(e=>e.Contains("thinking_finish")), "thinking timer events missing");
+    // Real orchestration protocol: isolated child context, visible nested tool, result returned to parent.
+    static string ReplyWithTool(string name, string id, object args) => JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content = (string?)null, tool_calls = new[] { new { id, type = "function", function = new { name, arguments = JsonSerializer.Serialize(args) } } } } } } });
+    var orchestratorHandler = new FakeHandler(
+        ReplyWithTool("delegate_agent", "delegate-1", new { role = "research", task = "Изучи список PR" }),
+        ReplyWithTool("github_cli", "github-1", new { args = new[] { "pr", "list", "--repo", "owner/repo" }, workspace = 0 }),
+        """{"choices":[{"message":{"role":"assistant","content":"Найдены два PR"}}]}""",
+        """{"choices":[{"message":{"role":"assistant","content":"Итог"}}]}""");
+    var orchestrationEvents = new List<string>(); var ghCalls = 0;
+    using (var orchestra = new Agent(e=>orchestrationEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(orchestratorHandler), store: restored,
+        runGithub: (arguments, folder, ct) => { ghCalls++; Assert(arguments.SequenceEqual(new[] { "pr", "list", "--repo", "owner/repo" }), "wrong gh args"); return Task.FromResult("Код выхода: 0\nstdout:\nдва PR\nstderr:\n"); }))
+        await orchestra.RunAsync("orchestra", "Проверь PR");
+    Assert(ghCalls == 1 && orchestratorHandler.Requests.Count == 4, "orchestration did not execute child");
+    var childRequest = JsonNode.Parse(orchestratorHandler.Requests[1])!;
+    Assert(childRequest["messages"]!.AsArray().Count == 2 && childRequest["messages"]![1]!["content"]!.GetValue<string>() == "Изучи список PR", "child context not isolated");
+    Assert(!childRequest["tools"]!.AsArray().Any(t => t?["function"]?["name"]?.GetValue<string>() == "delegate_agent"), "nested delegation exposed");
+    var parentContinuation = JsonNode.Parse(orchestratorHandler.Requests[3])!;
+    Assert(parentContinuation["messages"]!.AsArray().Last()!["content"]!.GetValue<string>() == "Найдены два PR", "child output not returned");
+    Assert(orchestrationEvents.Any(e => e.Contains("delegate_agent") && e.Contains("tool_start")) && orchestrationEvents.Any(e => e.Contains("github_cli") && e.Contains("tool_start")), "subagent actions not visible");
+    try { await GitHubCli.RunAsync(new[] { "auth", "token" }, root, CancellationToken.None); throw new Exception("token command accepted"); } catch (UnauthorizedAccessException) { }
+
+    byte[] png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+    File.WriteAllBytes(Path.Combine(root, "preview.png"), png);
+    Assert(ChatImages.FromBytes("cat.png", png)?.DataUrl.StartsWith("data:image/png;base64,") == true, "png preview missing");
+    Assert(ChatImages.FromBytes("bad.svg", Encoding.UTF8.GetBytes("<svg/>")) is null, "unsafe svg accepted");
+    spaces.SetUnrestricted(false);
+    var imageHandler = new FakeHandler(ReplyWithTool("attach_image", "image-1", new { path = "preview.png" }), answerReply);
+    var imageEvents = new List<string>();
+    using (var imageAgent = new Agent(e=>imageEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(imageHandler), store: restored)) await imageAgent.RunAsync("image-chat", "Покажи");
+    Assert(imageEvents.Any(e => e.Contains("assistant_image") && e.Contains("data:image/png;base64,")), "image tool did not emit preview");
+    Reject(() => ChatImages.FromFile(Path.Combine(outside, "outside.txt"), spaces), "image outside workspace allowed");
+    restored.Data.Chats[0].Messages.Add(new ChatItem { Role = "assistant_image", Images = [ChatImages.FromBytes("cat.png", png)!] }); restored.Save();
+    Assert(new LocalStore(storePath).Data.Chats[0].Messages[^1].Images[0].DataUrl.StartsWith("data:image/png"), "image preview not persisted");
     var attachHandler = new FakeHandler(answerReply);
     using (var attaching = new Agent(_ => {}, spaces, new HttpClient(attachHandler), store: restored)) await attaching.RunAsync("file-chat", "", attachments);
     var payload = JsonNode.Parse(attachHandler.Requests[0])!;

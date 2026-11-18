@@ -6,6 +6,7 @@ import ToolActivity from '../src/ToolActivity.jsx';
 import {updateToolMessages} from '../src/chatEvents.js';
 import {buildUsage} from '../src/InsightsPanel.jsx';
 import {formatDuration} from '../src/Thinking.jsx';
+import ChatImages, {safeImageSource} from '../src/ChatImages.jsx';
 
 const render = text => renderToStaticMarkup(<Markdown text={text} onCopy={()=>{}} onOpen={()=>{}}/>);
 describe('formatted responses',()=>{
@@ -64,5 +65,14 @@ describe('dashboard',()=>{
   it('formats durations under and over one minute',()=>{
     expect(formatDuration(31000)).toBe('31 с');
     expect(formatDuration(91000)).toBe('1 мин 31 с');
+  });
+});
+
+describe('chat image previews',()=>{
+  it('renders persisted and live raster images without fetching remote or SVG data',()=>{
+    const png='data:image/png;base64,aGVsbG8=';
+    const html=renderToStaticMarkup(<ChatImages images={[{Name:'кот.png',DataUrl:png},{name:'remote',dataUrl:'https://example.org/image.png'},{name:'bad',dataUrl:'data:image/svg+xml;base64,PHN2Zz4='}]}/>);
+    expect(html).toContain('кот.png'); expect(html).toContain(png); expect(html).not.toContain('example.org'); expect(html).not.toContain('svg');
+    expect(safeImageSource('javascript:alert(1)')).toBe('');
   });
 });

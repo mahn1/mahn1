@@ -13,16 +13,22 @@ internal sealed class Agent : IDisposable
     private static readonly HttpClient SharedHttp = new() { Timeout = TimeSpan.FromSeconds(120) };
     private readonly HttpClient http;
     private readonly Func<string, CancellationToken, Task<string>> runCommand;
+    private readonly Func<IReadOnlyList<string>, string, CancellationToken, Task<string>> runGithub;
     private readonly LocalStore store;
     private readonly Action<object> send;
     private readonly Workspaces workspaces;
     private string key = "";
     private string model = "openrouter/free";
     private CancellationTokenSource? active;
-    private const int MaxToolCalls = 12;
+    private const int MaxToolCalls = 32;
+    private const int MaxDelegations = 4;
+    private sealed class TurnBudget { public int Calls; public int Delegations; }
     private const int MaxOutput = 24000;
     private const string SystemPrompt = """
-        Ты Elisa Viora, ИИ-оркестратор задач и доступных инструментов. Отвечай на языке пользователя.
+        Ты Elisa Viora, ИИ-оркестратор задач и доступных инструментов, а не только помощник Windows. Отвечай на языке пользователя.
+        Для сложных задач делегируй отдельные подзадачи инструментом delegate_agent: исследование, реализация или проверка. Агент получает только описание задачи и работает с теми же доступными инструментами. Агенты выполняются последовательно; изучи их результаты и самостоятельно проверь существенные изменения. Не выдумывай, что делегировала задачу.
+        GitHub доступен через github_cli от имени учётной записи пользователя в GitHub CLI. Изменения без подтверждения. Не читай и не выводи токены, пароли и секреты; вывод инструментов отправляется провайдеру модели. Для git-команд используй PowerShell в полном режиме. GitHub CLI может обращаться к локальным файлам вне рабочих областей.
+        Чтобы показать пользователю локальное изображение прямо в чате, используй attach_image с существующим путём PNG, JPEG, GIF или WebP. Не утверждай, что прикрепила картинку, без результата инструмента.
         Уточняй цель при необходимости, разбивай сложные задачи на шаги, выбирай и координируй инструменты,
         проверяй результаты, исправляй ошибки и объясняй, что сделано. Не выдумывай инструменты и результаты.
         В каждом вызове инструмента по возможности передавай comment: короткое описание конкретного шага
@@ -36,8 +42,8 @@ internal sealed class Agent : IDisposable
         Если в доступе отказано или нужны права администратора, сообщи об этом пользователю.
         """;
 
-    public Agent(Action<object> send, Workspaces workspaces, HttpClient? http = null, Func<string, CancellationToken, Task<string>>? runCommand = null, LocalStore? store = null)
-    { this.send = send; this.workspaces = workspaces; this.http = http ?? SharedHttp; this.runCommand = runCommand ?? RunPowerShellAsync; this.store = store ?? new LocalStore(persist: false); key = this.store.Data.ApiKey; model = this.store.Data.Model; }
+    public Agent(Action<object> send, Workspaces workspaces, HttpClient? http = null, Func<string, CancellationToken, Task<string>>? runCommand = null, LocalStore? store = null, Func<IReadOnlyList<string>, string, CancellationToken, Task<string>>? runGithub = null)
+    { this.runGithub = runGithub ?? GitHubCli.RunAsync; this.send = send; this.workspaces = workspaces; this.http = http ?? SharedHttp; this.runCommand = runCommand ?? RunPowerShellAsync; this.store = store ?? new LocalStore(persist: false); key = this.store.Data.ApiKey; model = this.store.Data.Model; }
 
     public void EnsureIdle() { if (active is not null) throw new InvalidOperationException("Дождитесь завершения запроса."); }
 
@@ -76,11 +82,14 @@ internal sealed class Agent : IDisposable
             "read_file" => "Читаю содержимое файла",
             "write_file" => "Записываю изменения в файл",
             "create_directory" => "Создаю папку",
+            "delegate_agent" => "Передаю подзадачу агенту",
+            "github_cli" => "Работаю с GitHub",
+            "attach_image" => "Добавляю изображение в чат",
             _ => "Выполняю запрос к инструменту"
         };
     }
     private static JsonObject Field(string type, string description) => new() { ["type"] = type, ["description"] = description };
-    private JsonArray AvailableTools()
+    private JsonArray AvailableTools(bool allowDelegation = true)
     {
         JsonObject PathFields() => new() { ["workspace"] = Field("integer", "Номер рабочей области из list_workspaces"), ["path"] = Field("string", "Относительный путь внутри выбранной рабочей области") };
         var writeFields = PathFields(); writeFields["content"] = Field("string", "Полное содержимое UTF-8 файла, перезаписывает файл");
@@ -90,6 +99,11 @@ internal sealed class Agent : IDisposable
             Tool("read_file", "Читать текстовый UTF-8 файл в рабочей области", PathFields(), "workspace", "path"),
             Tool("write_file", "Создать или полностью перезаписать UTF-8 файл в рабочей области", writeFields, "workspace", "path", "content"),
             Tool("create_directory", "Создать папку внутри рабочей области", PathFields(), "workspace", "path"));
+        tools.Add(Tool("github_cli", "Выполнить GitHub CLI gh с полномочиями авторизованного пользователя, без подтверждений. Аргументы по отдельности; auth запрещён. При workspace=0 рабочая папка — профиль пользователя. gh может обращаться к любым локальным файлам.",
+            new JsonObject { ["args"] = new JsonObject { ["type"] = "array", ["items"] = Field("string", "Аргумент gh"), ["description"] = "Аргументы без слова gh, например [\"pr\",\"list\",\"--repo\",\"owner/repo\"]" }, ["workspace"] = Field("integer", "Номер рабочей области или 0") }, "args", "workspace"));
+        tools.Add(Tool("attach_image", "Показать локальную картинку PNG/JPEG/GIF/WebP прямо в чате (до 8 МБ).", new JsonObject { ["path"] = Field("string", "Путь к изображению в рабочей области или полный путь в полном режиме") }, "path"));
+        if (allowDelegation) tools.Add(Tool("delegate_agent", "Передать конкретную подзадачу отдельному агенту с собственной историей; он может использовать инструменты, но не делегировать дальше.",
+            new JsonObject { ["role"] = Field("string", "Роль: research, implement, review или general"), ["task"] = Field("string", "Самодостаточная задача со всеми необходимыми деталями и ограничениями") }, "role", "task"));
         if (workspaces.Settings.UnrestrictedPowerShell)
             tools.Add(Tool("run_powershell", "Выполнить PowerShell без подтверждения, без песочницы и БЕЗ ограничения рабочими областями, с правами текущего пользователя.",
                 new JsonObject { ["command"] = Field("string", "Полный PowerShell скрипт") }, "command"));
@@ -133,18 +147,21 @@ internal sealed class Agent : IDisposable
         if (history.Count > 0 && history[0]?["role"]?.GetValue<string>() == "system")
             history[0] = new JsonObject { ["role"] = "system", ["content"] = SystemPrompt };
         history.Add(new JsonObject { ["role"] = "user", ["content"] = Attachments.BuildContent(text, attachments) });
-        int calls = 0;
-        try
-        {
+        try { await RunLoopAsync(conversationId, history, currentKey, currentModel, new TurnBudget(), null, cts.Token); }
+        finally { active = null; }
+    }
+
+    private async Task<string> RunLoopAsync(string conversationId, JsonArray history, string currentKey, string currentModel, TurnBudget budget, string? role, CancellationToken token)
+    {
             for (int round = 0; round <= MaxToolCalls; round++)
             {
-                cts.Token.ThrowIfCancellationRequested();
+                token.ThrowIfCancellationRequested();
 
                 var requestBody = new JsonObject
                 {
                     ["model"] = currentModel,
                     ["messages"] = history.DeepClone(),
-                    ["tools"] = AvailableTools(),
+                    ["tools"] = AvailableTools(role is null),
                     ["tool_choice"] = "auto"
                 };
                 if (history.ToJsonString().Contains("data:application/pdf;base64,", StringComparison.OrdinalIgnoreCase))
@@ -160,8 +177,8 @@ internal sealed class Agent : IDisposable
                 bool completed = false;
                 try
                 {
-                    using var response = await http.SendAsync(request, cts.Token);
-                    raw = await response.Content.ReadAsStringAsync(cts.Token);
+                    using var response = await http.SendAsync(request, token);
+                    raw = await response.Content.ReadAsStringAsync(token);
                     if (!response.IsSuccessStatusCode)
                         throw new InvalidOperationException($"Ошибка OpenRouter: HTTP {(int)response.StatusCode}. Проверьте ключ, модель, баланс, лимиты и поддержку вложений моделью.");
                     completed = true;
@@ -186,16 +203,18 @@ internal sealed class Agent : IDisposable
                 if (toolCalls is null || toolCalls.Count == 0)
                 {
                     if (string.IsNullOrWhiteSpace(answer)) throw new InvalidOperationException("Модель вернула пустой ответ.");
-                    store.Data.Histories[conversationId] = history;
-                    store.Save();
-                    send(new { type = "answer", conversationId, text = answer });
-                    return;
+                    if (role is null) {
+                        store.Data.Histories[conversationId] = history;
+                        store.Save();
+                        send(new { type = "answer", conversationId, text = answer });
+                    }
+                    return answer;
                 }
-                if (!string.IsNullOrWhiteSpace(answer)) send(new { type = "step", conversationId, text = answer });
+                if (!string.IsNullOrWhiteSpace(answer)) send(new { type = "step", conversationId, text = role is null ? answer : $"Агент {role}: {answer}" });
                 foreach (var call in toolCalls)
                 {
-                    cts.Token.ThrowIfCancellationRequested();
-                    if (++calls > MaxToolCalls) throw new InvalidOperationException("Достигнут лимит команд за один запрос. Продолжите новым сообщением.");
+                    token.ThrowIfCancellationRequested();
+                    if (++budget.Calls > MaxToolCalls) throw new InvalidOperationException("Достигнут лимит команд за один запрос. Продолжите новым сообщением.");
                     var callId = call?["id"]?.GetValue<string>();
                     if (string.IsNullOrEmpty(callId)) throw new InvalidOperationException("Модель вернула вызов инструмента без идентификатора.");
                     string result;
@@ -211,21 +230,49 @@ internal sealed class Agent : IDisposable
                         else if (parsed is not null) command = parsed.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
                     }
                     catch (Exception ex) when (ex is JsonException or InvalidOperationException) { /* Show raw arguments if invalid. */ }
-                    string toolComment = DescribeTool(name, parsed, command);
+                    string toolComment = (role is null ? "" : $"Агент {role}: ") + DescribeTool(name, parsed, command);
                     send(new { type = "tool_start", conversationId, toolId, toolName = name ?? "unknown", toolComment, command });
                     // Let WebView render the command before running even a synchronous file operation.
                     await Task.Yield();
                     bool failed = false;
                     try
                     {
-                        cts.Token.ThrowIfCancellationRequested();
-                        if (name == "run_powershell")
+                        token.ThrowIfCancellationRequested();
+                        if (name == "delegate_agent")
+                        {
+                            if (role is not null) throw new InvalidOperationException("Вложенное делегирование недоступно.");
+                            if (++budget.Delegations > MaxDelegations) throw new InvalidOperationException("Достигнут предел делегирований за ход.");
+                            string childRole = parsed?["role"]?.GetValue<string>() ?? "";
+                            string task = parsed?["task"]?.GetValue<string>() ?? "";
+                            if (childRole is not ("research" or "implement" or "review" or "general") || string.IsNullOrWhiteSpace(task) || task.Length > 12000) throw new ArgumentException("Укажите допустимую роль и задачу до 12000 символов.");
+                            var childHistory = new JsonArray(
+                                new JsonObject { ["role"] = "system", ["content"] = SystemPrompt + $"\nТы отдельный агент роли {childRole}. Выполни только поставленную задачу, верни результаты оркестратору. Не делегируй другим агентам." },
+                                new JsonObject { ["role"] = "user", ["content"] = task });
+                            result = await RunLoopAsync(conversationId, childHistory, currentKey, currentModel, budget, childRole, token);
+                        }
+                        else if (name == "github_cli")
+                        {
+                            if (parsed?["args"] is not JsonArray argsArray) throw new ArgumentException("Укажите список аргументов gh.");
+                            var arguments = argsArray.Select(a => a?.GetValue<string>() ?? "").ToArray();
+                            int workspace = parsed?["workspace"]?.GetValue<int>() ?? 0;
+                            string folder = workspace == 0 ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : workspaces.Resolve(workspace, "");
+                            send(new { type = "status", conversationId, text = "Работаю с GitHub…" });
+                            result = await runGithub(arguments, folder, token);
+                            if (result.StartsWith("Код выхода: ") && !result.StartsWith("Код выхода: 0\n")) failed = true;
+                        }
+                        else if (name == "attach_image")
+                        {
+                            var image = ChatImages.FromFile(parsed?["path"]?.GetValue<string>() ?? "", workspaces);
+                            send(new { type = "assistant_image", conversationId, image });
+                            result = "Изображение добавлено в чат: " + image.Name;
+                        }
+                        else if (name == "run_powershell")
                         {
                             if (!workspaces.Settings.UnrestrictedPowerShell) throw new UnauthorizedAccessException("Полный доступ PowerShell выключен.");
                             string script = parsed?["command"]?.GetValue<string>() ?? "";
                             if (string.IsNullOrWhiteSpace(script) || script.Length > 10000) throw new ArgumentException("Недопустимая команда.");
                             send(new { type = "status", conversationId, text = "Выполняю PowerShell…" });
-                            result = await runCommand(script, cts.Token);
+                            result = await runCommand(script, token);
                             const string exitPrefix = "Код выхода: ";
                             if (result.StartsWith(exitPrefix, StringComparison.Ordinal))
                             {
@@ -256,8 +303,6 @@ internal sealed class Agent : IDisposable
                 }
             }
             throw new InvalidOperationException("Достигнут лимит шагов агента.");
-        }
-        finally { active = null; }
     }
 
     private static async Task<string> ReadLimitedAsync(StreamReader reader)
