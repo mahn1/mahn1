@@ -103,6 +103,20 @@ internal sealed class ElisaWindow : Form
                 agent.EnsureIdle(); library.Ensure(); workspaces.Add(library.Root); SendSettings();
                 Send(new { type = "storage_added" });
             }
+            else if (type == "preview_html")
+            {
+                using var picker = new OpenFileDialog { Title = "Выберите HTML для предпросмотра", Filter = "HTML (*.html;*.htm)|*.html;*.htm", CheckFileExists = true };
+                if (picker.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (MessageBox.Show("HTML и скрипты получат доступ к файлам выбранной папки через виртуальный веб-адрес и могут обращаться в сеть. Открывайте только доверенные сайты. Продолжить?", "Предпросмотр HTML", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                        new PreviewWindow(picker.FileName).Show(this);
+                }
+            }
+            else if (type == "diagnose_model")
+            {
+                try { var route = ProviderSettings.Resolve(store.Data); var results = await agent.DiagnoseAsync(CancellationToken.None); Send(new { type = "model_diagnostics", text = route.Label + " · " + route.Model + "\n" + string.Join("\n", results) }); }
+                catch (Exception ex) { Send(new { type = "model_diagnostics", text = "Проверка не выполнена: " + ex.Message }); }
+            }
             else if (type == "open_file")
             {
                 string file = ChatFileAccess.Resolve(root.GetProperty("path").GetString() ?? "", workspaces, Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));

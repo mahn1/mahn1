@@ -14,6 +14,29 @@ string root = Path.Combine(temp, "work"), outside = Path.Combine(temp, "work-oth
 Directory.CreateDirectory(root); Directory.CreateDirectory(outside);
 try
 {
+    using (var response = new HttpResponseMessage(HttpStatusCode.OK))
+    {
+        string sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi \"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"content\":\"there\",\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read_\",\"arguments\":\"{\\\"a\\\":\"}}]}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"file\",\"arguments\":\"1}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+            "data: [DONE]\n\n";
+        response.Content = new StringContent(sse, Encoding.UTF8, "text/event-stream");
+        string partial = ""; var streamed = await ChatStreaming.ReadAsync(response, part => partial += part, CancellationToken.None);
+        var msg = streamed["choices"]![0]!["message"]!;
+        Assert(partial == "Hi there" && msg["content"]!.GetValue<string>() == partial, "stream text assembly");
+        Assert(msg["tool_calls"]![0]!["function"]!["name"]!.GetValue<string>() == "read_file" && msg["tool_calls"]![0]!["function"]!["arguments"]!.GetValue<string>() == "{\"a\":1}", "stream tool assembly");
+    }
+    var reasoningBlocks = new JsonArray();
+    ChatStreaming.AppendReasoning(reasoningBlocks, JsonNode.Parse("{\"type\":\"reasoning.text\",\"index\":0,\"text\":\"A\"}")!.AsObject());
+    ChatStreaming.AppendReasoning(reasoningBlocks, JsonNode.Parse("{\"type\":\"reasoning.text\",\"index\":0,\"signature\":\"sig\"}")!.AsObject());
+    ChatStreaming.AppendReasoning(reasoningBlocks, JsonNode.Parse("{\"type\":\"reasoning.text\",\"index\":0,\"text\":\"B\"}")!.AsObject());
+    Assert(reasoningBlocks.Count == 2 && reasoningBlocks[0]!["signature"]!.GetValue<string>() == "sig", "signed reasoning blocks combined");
+    using (var response = new HttpResponseMessage(HttpStatusCode.OK))
+    {
+        response.Content = new StringContent("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n", Encoding.UTF8, "text/event-stream");
+        bool rejected = false; try { await ChatStreaming.ReadAsync(response, _ => { }, CancellationToken.None); } catch (IOException) { rejected = true; }
+        Assert(rejected, "truncated stream accepted");
+    }
     var spaces = new Workspaces(Path.Combine(temp, "settings.json"));
     spaces.Add(root);
     spaces.Add(root);

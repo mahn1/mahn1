@@ -154,6 +154,15 @@ internal sealed class Agent : IDisposable
     }
 
     public Task<object> CheckOpenRouterQuotaAsync(CancellationToken ct) => ProviderBudget.OpenRouterQuotaAsync(http, store.Data.ApiKey, ct);
+    public async Task<List<string>> DiagnoseAsync(CancellationToken ct)
+    {
+        EnsureIdle();
+        var route = ProviderSettings.Resolve(store.Data);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        active = cts;
+        try { return await ModelDiagnostics.RunAsync(http, store, route, () => { send(new { type = "budget_updated", caps = store.Data.ProviderCaps, daily = store.Data.DailyUsage }); send(new { type = "usage_updated", usage = store.Data.Usage }); }, cts.Token); }
+        finally { active = null; }
+    }
     public void Cancel() => active?.Cancel();
 
     public async Task RunAsync(string conversationId, string text, IReadOnlyList<Attachment>? attachments = null)
@@ -198,8 +207,10 @@ internal sealed class Agent : IDisposable
                     ["model"] = route.Model,
                     ["messages"] = preparedHistory,
                     ["tools"] = AvailableTools(role is null, readOnly),
-                    ["tool_choice"] = "auto"
+                    ["tool_choice"] = "auto",
+                    ["stream"] = role is null
                 };
+                if (role is null && route.Provider == "openrouter") requestBody["stream_options"] = new JsonObject { ["include_usage"] = true };
                 if (route.Provider == "openrouter" && history.ToJsonString().Contains("data:application/pdf;base64,", StringComparison.OrdinalIgnoreCase))
                     requestBody["plugins"] = new JsonArray(new JsonObject { ["id"] = "file-parser", ["pdf"] = new JsonObject { ["engine"] = "cloudflare-ai" } });
                 using var request = new HttpRequestMessage(HttpMethod.Post, route.Endpoint);
@@ -211,22 +222,25 @@ internal sealed class Agent : IDisposable
                 string thinkingId = Guid.NewGuid().ToString("N");
                 send(new { type = "thinking_start", conversationId, toolId = thinkingId, provider = route.Label, model = route.Model });
                 var watch = Stopwatch.StartNew();
-                string raw;
+                JsonNode root;
                 bool completed = false;
+                using var responseTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                responseTimeout.CancelAfter(TimeSpan.FromSeconds(120));
                 try
                 {
-                    using var response = await http.SendAsync(request, token);
-                    raw = await response.Content.ReadAsStringAsync(token);
+                    using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, responseTimeout.Token);
                     if (!response.IsSuccessStatusCode)
                         throw new InvalidOperationException($"Ошибка {route.Label}: HTTP {(int)response.StatusCode}. Проверьте ключ, модель, лимиты и поддержку инструментов и вложений.");
+                    root = await ChatStreaming.ReadAsync(response, fragment => { if (role is null) send(new { type = "stream_delta", conversationId, streamId = thinkingId, text = fragment }); }, responseTimeout.Token);
                     completed = true;
                 }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested) { throw new TimeoutException("Превышено время ожидания ответа модели."); }
                 finally
                 {
                     watch.Stop();
+                    if (role is null) send(new { type = "stream_end", conversationId, streamId = thinkingId });
                     send(new { type = "thinking_finish", conversationId, toolId = thinkingId, durationMs = watch.ElapsedMilliseconds, toolStatus = completed ? "done" : "interrupted" });
                 }
-                var root = JsonNode.Parse(raw) ?? throw new InvalidOperationException("Пустой ответ OpenRouter.");
                 lock (store.Sync)
                 {
                     ProviderBudget.AddUsage(store, route.Provider, root);
