@@ -40,6 +40,7 @@ try
     Reject(() => FileAccess.Resolve(Path.Combine(outside, "outside.txt"), spaces, outside), "outside file opened in workspace mode");
     Assert(FileAccess.CanOpenDirectly("cat.svg") && !FileAccess.CanOpenDirectly("script.bat"), "unsafe file policy failed");
     spaces.SetUnrestricted(true);
+    Reject(() => FileAccess.Resolve("sample.txt:stream", spaces, outside), "file ADS accepted");
     Assert(FileAccess.Resolve("outside.txt", spaces, outside) == Path.Combine(outside, "outside.txt"), "desktop file not resolved");
     var library = new LocalLibrary(Path.Combine(temp, "library")); library.Ensure();
     Assert(Directory.Exists(Path.Combine(library.Root, "Projects")) && Directory.Exists(Path.Combine(library.Root, "Notes")) && Directory.Exists(Path.Combine(library.Root, "Exports")), "library folders missing");

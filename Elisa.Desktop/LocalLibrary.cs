@@ -27,8 +27,9 @@ internal static class FileAccess
             reference = uri.LocalPath;
         }
         if (reference.StartsWith("\\\\") || reference.StartsWith("//")) throw new ArgumentException("Сетевые пути не поддерживаются.");
-        if ((reference.Length > 2 && reference[1] == ':' && reference[2..].Contains(':')) ||
-            (reference.Length > 0 && reference[0] == ':')) throw new ArgumentException("Альтернативные потоки не поддерживаются.");
+        int firstColon = reference.IndexOf(':');
+        if (firstColon >= 0 && !(firstColon == 1 && char.IsAsciiLetter(reference[0]) && reference.IndexOf(':', 2) < 0))
+            throw new ArgumentException("Альтернативные потоки не поддерживаются.");
         var matches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool absolute = Path.IsPathFullyQualified(reference);
         if (!absolute && Path.IsPathRooted(reference)) throw new ArgumentException("Укажите полный путь или путь относительно рабочей области.");
