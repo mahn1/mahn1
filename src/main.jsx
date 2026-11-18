@@ -9,6 +9,7 @@ import ToolActivity from './ToolActivity.jsx';
 import InsightsPanel from './InsightsPanel.jsx';
 import Thinking from './Thinking.jsx';
 import ChatImages from './ChatImages.jsx';
+import ProviderSettings, {initialProviderSettings} from './ProviderSettings.jsx';
 
 const prompts = [
   {icon: Code2, label: 'Написать код', text: 'Помоги написать код для моего проекта'},
@@ -24,8 +25,7 @@ function App() {
   const [active, setActive] = useState(null);
   const [draft, setDraft] = useState('');
   const [model, setModel] = useState('openrouter/free');
-  const [modelInput, setModelInput] = useState('openrouter/free');
-  const [apiKey, setApiKey] = useState('');
+  const [providerSettings, setProviderSettings] = useState(initialProviderSettings);
   const [configured, setConfigured] = useState(false);
   const [modal, setModal] = useState(null);
   const [settingsTab, setSettingsTab] = useState('workspaces');
@@ -54,9 +54,9 @@ function App() {
   useEffect(()=>{
     if (!desktop) return;
     const receive = ({data}) => {
-      if (data.type === 'configured') {setConfigured(true);setModel(data.model);setApiKey('');setModal(null);setToast('Настройки сохранены и защищены средствами Windows.');}
+      if (data.type === 'configured') {setConfigured(true);setModel(data.model);setModal(null);setToast('Настройки сохранены и защищены средствами Windows.');}
       if (data.type === 'state_loaded') {
-        setConfigured(data.configured); setModel(data.model); setModelInput(data.model); setUsage(data.usage || {});
+        setConfigured(data.configured); setModel(data.model); setProviderSettings({provider:data.provider,openRouterModel:data.openRouterModel,nvidiaModel:data.nvidiaModel,openRouterConfigured:data.openRouterConfigured,nvidiaConfigured:data.nvidiaConfigured,routes:data.routes || {}}); setUsage(data.usage || {});
         setChats(data.chats.map(({messages,...chat})=>chat));
         setMessages(Object.fromEntries(data.chats.map(chat=>[chat.id,chat.messages])));
       }
@@ -70,7 +70,7 @@ function App() {
       if (data.type === 'file_revealed') setToast('Потенциально исполняемый файл показан в Проводнике, без запуска.');
       if (data.type === 'chat_renamed') {setChats(prev=>prev.map(chat=>chat.id===data.id?{...chat,title:data.title}:chat));setRenameTarget(null);}
       if (data.type === 'chat_deleted') {setChats(prev=>prev.filter(chat=>chat.id!==data.id));setMessages(prev=>{const copy={...prev};delete copy[data.id];return copy});setActive(prev=>prev===data.id?null:prev);setToast('Чат удалён.');}
-      if (data.type === 'thinking_start') {setStatus('');setMessages(prev=>({...prev,[data.conversationId]:[...(prev[data.conversationId]||[]),{role:'thinking_start',toolId:data.toolId,toolStatus:'running',startedAt:Date.now()}]}));}
+      if (data.type === 'thinking_start') {setStatus('');setMessages(prev=>({...prev,[data.conversationId]:[...(prev[data.conversationId]||[]),{role:'thinking_start',toolId:data.toolId,toolStatus:'running',provider:data.provider,model:data.model,startedAt:Date.now()}]}));}
       if (data.type === 'thinking_finish') setMessages(prev=>({...prev,[data.conversationId]:(prev[data.conversationId]||[]).map(item=>item.toolId===data.toolId?{...item,durationMs:data.durationMs,toolStatus:data.toolStatus}:item)}));
       if (data.type === 'workspace_settings') {setPaths(data.paths);setUnrestricted(data.unrestricted);}
       if (data.type === 'copied') setToast('Скопировано.');
@@ -111,7 +111,7 @@ function App() {
   const submit = async () => {
     const value=draft.trim(); if((!value && !attachments.length)||busy)return;
     if (!desktop) {setToast('Агент работает только в Windows-приложении Elisa.exe.');return;}
-    if (!configured) {setSettingsTab('provider');setModal('settings');setToast('Сначала настройте OpenRouter.');return;}
+    if (!configured) {setSettingsTab('provider');setModal('settings');setToast('Сначала настройте провайдера и модель.');return;}
     if (value.length > 50000) {setToast('Сообщение слишком длинное — вставьте его как .txt.');return;}
     setBusy(true); setStatus('Подготавливаю вложения…');
     try {
@@ -122,7 +122,7 @@ function App() {
       if(!id){id=crypto.randomUUID();setChats(prev=>[{id,title:preview.length>36?preview.slice(0,36)+'…':preview,preview},...prev]);setActive(id);}
       setMessages(prev=>({...prev,[id]:[...(prev[id]||[]),{role:'user',text:value,attachments:names,images:prepared.filter(f=>/^image\/(png|jpeg|gif|webp)$/i.test(f.type)).map(f=>({name:f.name,dataUrl:`data:${f.type};base64,${f.data}`}))}]}));
       setBusyChat(id);
-      setDraft('');setAttachments([]);setStatus('Отправляю запрос в OpenRouter…');
+      setDraft('');setAttachments([]);setStatus('Отправляю запрос провайдеру…');
       window.chrome.webview.postMessage({type:'send',conversationId:id,text:value,attachments:prepared});
     } catch(error) {setBusy(false);setStatus('');setToast(error.message || 'Не удалось прочитать вложение.');}
   };
@@ -133,11 +133,6 @@ function App() {
     if (text.length >= 4000) {event.preventDefault();addFiles([new File([text],`вставка-${Date.now()}.txt`,{type:'text/plain'})]);setToast('Большой текст добавлен как .txt.');}
   };
   const handleDrop = event => {event.preventDefault();setDragging(false);addFiles(event.dataTransfer.files);};
-  const configure = () => {
-    if (!desktop) {setToast('Настройка доступна в Windows-приложении Elisa.exe.');return;}
-    if ((!configured && !apiKey.trim()) || !modelInput.trim()) {setToast('Укажите ключ и ID модели.');return;}
-    window.chrome.webview.postMessage({type:'configure',key:apiKey,model:modelInput});
-  };
   const desktopAction = (message) => { if (!desktop) {setToast('Доступно в Windows-приложении Elisa.exe.');return;} window.chrome.webview.postMessage(message); };
   const copyText = async text => {
     if (desktop) {window.chrome.webview.postMessage({type:'copy_text',text});return;}
@@ -158,33 +153,29 @@ function App() {
       <button className="new-chat" onClick={newChat}><SquarePen size={17}/><span>Новый чат</span><span className="shortcut">Ctrl K</span></button>
       <nav className="navigation"><button onClick={()=>{setModal('search');setSearch('')}}><Search size={17}/><span>Поиск</span></button><button className="nav-selected" onClick={newChat}><MessageSquare size={17}/><span>Чаты</span></button></nav>
       <div className="side-divider"/><div className="history"><div className="side-heading">НЕДАВНИЕ <MoreHorizontal size={17}/></div><div className="history-group">{chats.length?<div className="history-label">Сохранённые</div>:<div className="history-label">Здесь появятся ваши чаты</div>}{chats.map(chat=><button className={'history-item '+(active===chat.id?'history-active':'')} key={chat.id} onContextMenu={event=>showChatMenu(event,chat)} onKeyDown={event=>{if(event.key==='F10'&&event.shiftKey)showChatMenu(event,chat)}} onClick={()=>openChat(chat.id)}>{chat.title}</button>)}</div></div>
-      <div className="sidebar-bottom"><div className="upgrade"><div className="upgrade-icon"><ShieldAlert size={15}/></div><div><strong>{unrestricted?'Полный доступ к Windows':'Рабочие области'}</strong><span>{unrestricted?'Без ограничений папками':`${paths.length} папок · без подтверждений`}</span></div><button title="Настройки" onClick={()=>setModal('settings')}><ArrowUpRight size={15}/></button></div><button className="profile" onClick={()=>setModal('settings')}><span className="avatar">В</span><span className="profile-text"><strong>Ваше пространство</strong><small>Настройки OpenRouter</small></span><MoreHorizontal size={18}/></button></div>
+      <div className="sidebar-bottom"><div className="upgrade"><div className="upgrade-icon"><ShieldAlert size={15}/></div><div><strong>{unrestricted?'Полный доступ к Windows':'Рабочие области'}</strong><span>{unrestricted?'Без ограничений папками':`${paths.length} папок · без подтверждений`}</span></div><button title="Настройки" onClick={()=>setModal('settings')}><ArrowUpRight size={15}/></button></div><button className="profile" onClick={()=>setModal('settings')}><span className="avatar">В</span><span className="profile-text"><strong>Ваше пространство</strong><small>Настройки моделей</small></span><MoreHorizontal size={18}/></button></div>
     </aside>}
     <main className="main">
-      <header className="topbar"><div className="top-left">{!sidebar&&<button className="icon-button" onClick={()=>setSidebar(true)} title="Открыть панель"><PanelLeftOpen size={19}/></button>}<span>{active?'Чат':'Личное пространство'}</span>{active&&<><ChevronRight size={14}/><strong>{current?.title}</strong></>}</div><div className="top-right"><span className="connection"><span className={"connection-dot "+(configured?"connected":"")}/> {configured?'OpenRouter настроен':'Не подключено'}</span><button className="icon-button mobile-menu" onClick={()=>setSidebar(!sidebar)} title="Меню"><Menu size={19}/></button><button className="icon-button" title="Обзор и статистика" onClick={()=>setPanelOpen(open=>!open)}><BarChart3 size={17}/></button><button className="icon-button top-settings" title="Настройки" onClick={()=>setModal('settings')}><SlidersHorizontal size={17}/></button></div></header>
+      <header className="topbar"><div className="top-left">{!sidebar&&<button className="icon-button" onClick={()=>setSidebar(true)} title="Открыть панель"><PanelLeftOpen size={19}/></button>}<span>{active?'Чат':'Личное пространство'}</span>{active&&<><ChevronRight size={14}/><strong>{current?.title}</strong></>}</div><div className="top-right"><span className="connection"><span className={"connection-dot "+(configured?"connected":"")}/> {configured?(providerSettings.provider==='nvidia'?'NVIDIA Build настроен':'OpenRouter настроен'):'Не подключено'}</span><button className="icon-button mobile-menu" onClick={()=>setSidebar(!sidebar)} title="Меню"><Menu size={19}/></button><button className="icon-button" title="Обзор и статистика" onClick={()=>setPanelOpen(open=>!open)}><BarChart3 size={17}/></button><button className="icon-button top-settings" title="Настройки" onClick={()=>setModal('settings')}><SlidersHorizontal size={17}/></button></div></header>
       <div className="dashboard-body"><div className="chat-area">{active ? <section className="conversation"><div className="conversation-inner"><div className="conversation-title"><span className="tiny-star">✳</span><span>Личное пространство</span></div><h2>{current?.title}</h2>{(messages[active]||[]).map((message,i)=>message.role==='thinking_start'?<Thinking key={message.toolId||i} message={message}/>:message.role==='user'?<div className="message user-message" key={i}>{message.text}<ChatImages images={message.images}/>{message.attachments?.length>0&&<div className="message-files">{message.attachments.map((name,j)=><span key={j}><Paperclip size={13}/>{name}</span>)}</div>}</div>:message.role==='assistant_image'?<div className="assistant-message" key={i}><Mark small/><div className="assistant-content"><strong>Elisa</strong><ChatImages images={message.images}/></div></div>:(message.role==='tool_result'||message.role==='tool_start')?<ToolActivity key={message.toolId||i} message={message} onCopy={copyText}/>:<div className={'assistant-message '+(message.role==='error'?'error-message':'')} key={i}><Mark small/><div className="assistant-content"><strong>{message.role==='error'?'Ошибка':'Elisa'}</strong><Markdown text={message.text} onCopy={copyText} onOpen={openLink} onFile={openFile}/></div></div>)}{busy&&active===busyChat&&status&&<div className="agent-status"><span className="activity-spinner"/>{status}</div>}<div ref={endRef}/></div><div className="conversation-composer"><Composer {...{draft,setDraft,submit,model,textarea,busy,attachments,setAttachments,addFiles,handlePaste,dragging}} settings={()=>setModal('settings')} cancel={()=>window.chrome.webview.postMessage({type:'cancel'})}/><div className="disclaimer">{unrestricted?'Полный доступ к Windows включён. Действия выполняются без подтверждений.':'Файловые действия выполняются без подтверждений в рабочих областях.'}</div></div></section> : <section className="home-view">
         <div className="welcome"><div className="welcome-icon"><img src={logo} alt="Логотип Elisa"/></div><div className="greeting-overline">ELISA VIORA 1.0 · ВАШЕ ПРОСТРАНСТВО ДЛЯ ИДЕЙ</div><h1>Чем займёмся сегодня<span>?</span></h1><p>Большие идеи начинаются с простого вопроса.</p></div>
         <Composer {...{draft,setDraft,submit,model,textarea,busy,attachments,setAttachments,addFiles,handlePaste,dragging}} settings={()=>setModal('settings')} cancel={()=>window.chrome.webview.postMessage({type:'cancel'})}/>
         <div className="prompt-list">{prompts.map(({icon:Icon,label,text})=><button key={label} onClick={()=>{setDraft(text);textarea.current?.focus()}}><Icon size={15}/>{label}<ArrowUpRight size={13} className="prompt-arrow"/></button>)}</div>
         <div className="recent"><div className="recent-header"><div><div className="section-eyebrow">ПРОДОЛЖИТЬ С ТОГО ЖЕ МЕСТА</div><h2>Недавние чаты</h2></div><button onClick={()=>setModal('search')}>Все чаты <ChevronRight size={15}/></button></div>{chats.length?<div className="recent-grid">{chats.slice(0,3).map(chat=><button className="recent-card" key={chat.id} onContextMenu={event=>showChatMenu(event,chat)} onClick={()=>openChat(chat.id)}><div className="card-icon"><Clock3 size={17}/></div><strong>{chat.title}</strong><p>{chat.preview}</p><span>Сохранённые <ArrowUpRight size={14}/></span></button>)}</div>:<div className="empty-history">Начните новый диалог — он появится здесь.</div>}</div>
-        <div className="home-footer"><span>Создано для вашего потока мыслей <span className="footer-star">✳</span></span><span>Работает с OpenRouter <span className="footer-dot">●</span></span></div>
+        <div className="home-footer"><span>Создано для вашего потока мыслей <span className="footer-star">✳</span></span><span>OpenRouter · NVIDIA Build <span className="footer-dot">●</span></span></div>
       </section>}</div>{panelOpen&&<InsightsPanel usage={usage} storagePath={storagePath} busy={busy} onOpenStorage={()=>desktopAction({type:'open_storage'})} onAddStorage={()=>desktopAction({type:'add_storage_workspace'})}/>}</div>
     </main>
     {contextMenu&&<><div className="context-dismiss" onClick={()=>setContextMenu(null)} onContextMenu={e=>{e.preventDefault();setContextMenu(null)}}/><div className="chat-context" style={{left:contextMenu.x,top:contextMenu.y}}><button disabled={busy} onClick={()=>{setRenameTarget(contextMenu.id);setRenameText(contextMenu.title);setContextMenu(null)}}><PenLine size={15}/> Переименовать</button><button disabled={busy} className="delete-chat" onClick={()=>{desktopAction({type:'delete_chat',id:contextMenu.id});setContextMenu(null)}}><Trash2 size={15}/> Удалить чат</button>{busy&&<span>Дождитесь завершения запроса</span>}</div></>}
     {renameTarget&&<div className="modal-backdrop" onMouseDown={()=>setRenameTarget(null)}><form className="modal rename-modal" onMouseDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();if(renameText.trim())desktopAction({type:'rename_chat',id:renameTarget,title:renameText.trim()})}}><div className="modal-head"><div><span className="section-eyebrow">ВАШИ ДИАЛОГИ</span><h2>Переименовать чат</h2></div><button type="button" className="icon-button" onClick={()=>setRenameTarget(null)}><X size={18}/></button></div><label className="field-label" htmlFor="chat-title">Название</label><input id="chat-title" className="settings-input" value={renameText} maxLength={120} autoFocus onChange={e=>setRenameText(e.target.value)}/><button className="done-button" disabled={!renameText.trim()||busy}>Сохранить</button></form></div>}
     {modal && <div className="modal-backdrop" onMouseDown={()=>setModal(null)}><div className={'modal '+(modal==='search'?'search-modal':'')} onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><span className="section-eyebrow">{modal==='search'?'ВАШИ ДИАЛОГИ':'ВАШЕ ПРОСТРАНСТВО'}</span><h2>{modal==='search'?'Поиск по чатам':'Настройки'}</h2></div><button className="icon-button" onClick={()=>setModal(null)} aria-label="Закрыть"><X size={19}/></button></div>{modal==='search'?<><label className="search-field"><Search size={18}/><input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Найти чат..."/></label><div className="search-results">{filtered.length?filtered.map(c=><button key={c.id} onClick={()=>openChat(c.id)}><MessageSquare size={16}/><span>{c.title}<small>Сохранённые</small></span><ChevronRight size={16}/></button>):<p>Чаты не найдены</p>}</div></>:<div className="settings-content">
-      <div className="settings-tabs"><button className={settingsTab==='workspaces'?'selected':''} onClick={()=>setSettingsTab('workspaces')}>Рабочие области</button><button className={settingsTab==='provider'?'selected':''} onClick={()=>setSettingsTab('provider')}>OpenRouter</button><button className={settingsTab==='github'?'selected':''} onClick={()=>setSettingsTab('github')}>GitHub</button><button className={settingsTab==='system'?'selected':''} onClick={()=>setSettingsTab('system')}>Система</button></div>
+      <div className="settings-tabs"><button className={settingsTab==='workspaces'?'selected':''} onClick={()=>setSettingsTab('workspaces')}>Рабочие области</button><button className={settingsTab==='provider'?'selected':''} onClick={()=>setSettingsTab('provider')}>Модели</button><button className={settingsTab==='github'?'selected':''} onClick={()=>setSettingsTab('github')}>GitHub</button><button className={settingsTab==='system'?'selected':''} onClick={()=>setSettingsTab('system')}>Система</button></div>
       {settingsTab==='workspaces'?<>
         <div className="settings-block"><div className="settings-icon"><FolderClosed size={19}/></div><div><h3>Папки для работы</h3><p>Файлы в выбранных папках доступны агенту автоматически.</p></div></div>
         <div className="workspace-list">{paths.length?paths.map(path=><div className="workspace-row" key={path}><FolderClosed size={16}/><span title={path}>{path}</span><button disabled={busy} title="Удалить" onClick={()=>desktopAction({type:'remove_workspace',path})}><Trash2 size={16}/></button></div>):<div className="workspace-empty">Рабочие области пока не добавлены</div>}</div>
         <button className="settings-secondary" disabled={busy} onClick={()=>desktopAction({type:'add_workspace'})}><FolderPlus size={16}/> Добавить папку</button>
-        <div className="workspace-toggle"><div><strong>Полный доступ к Windows</strong><p>Включает PowerShell без ограничений выбранными папками.</p></div><label className="switch"><input aria-label="Полный доступ к Windows" type="checkbox" checked={unrestricted} disabled={busy} onChange={e=>desktopAction({type:'set_unrestricted',enabled:e.target.checked})}/><span/></label></div>
+        <div className="workspace-toggle"><div><strong>Полный доступ к Windows</strong><p>Включает PowerShell и Python без ограничений выбранными папками.</p></div><label className="switch"><input aria-label="Полный доступ к Windows" type="checkbox" checked={unrestricted} disabled={busy} onChange={e=>desktopAction({type:'set_unrestricted',enabled:e.target.checked})}/><span/></label></div>
         <div className={'access-warning '+(unrestricted?'danger':'')}><ShieldAlert size={17}/><span>{unrestricted?'Включён полный доступ: агент может изменять и удалять любые доступные файлы, запускать программы и обращаться в сеть без подтверждений.':'Без подтверждений агент может читать и перезаписывать файлы в выбранных папках. Это ограничение путей, а не песочница Windows.'}</span></div>
-      </>:settingsTab==='provider'?<>
-        <div className="settings-block"><div className="settings-icon"><Globe2 size={19}/></div><div><h3>Подключение OpenRouter</h3><p>Модель должна поддерживать вызов инструментов.</p></div></div>
-        <div className="demo-info"><ShieldAlert size={17}/><span>Ключ и история зашифрованы Windows для текущего пользователя. Сообщения и вложения отправляются в OpenRouter.</span></div>
-        <label className="field-label" htmlFor="apiKey">API-ключ OpenRouter</label><input id="apiKey" className="settings-input" type="password" autoComplete="off" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder={configured?'Оставьте пустым, чтобы сохранить текущий':'sk-or-v1-…'}/><label className="field-label" htmlFor="model">ID модели OpenRouter</label><input id="model" className="settings-input" value={modelInput} onChange={e=>setModelInput(e.target.value)} placeholder="openrouter/free"/><p className="settings-hint">Укажите точный ID модели. Доступность и тарифы зависят от OpenRouter.</p><button className="done-button" onClick={configure} disabled={busy}>Применить</button>
-      </>:settingsTab==='github'?<>
+      </>:settingsTab==='provider'?<ProviderSettings initial={providerSettings} busy={busy} onSave={desktopAction}/>:settingsTab==='github'?<>
         <div className="settings-block"><div className="settings-icon"><Code2 size={19}/></div><div><h3>GitHub CLI</h3><p>Elisa использует учётную запись, в которую вы вошли через gh.</p></div></div>
         <div className="access-warning danger"><ShieldAlert size={17}/><span>Агенты могут работать с приватными репозиториями, удалять и менять данные без подтверждений в пределах выданных GitHub прав. gh может читать и изменять локальные файлы вне рабочих областей. Результаты команд отправляются модели.</span></div>
         <p className="settings-system-description">Установите GitHub CLI (gh), перезапустите Elisa и выполните вход в открывшемся терминале и браузере. Разрешения определяются учётной записью и настройками организаций. Токен в чат вводить не нужно.</p>

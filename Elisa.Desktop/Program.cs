@@ -137,7 +137,15 @@ internal sealed class ElisaWindow : Form
             else if (type == "set_unrestricted") { agent.EnsureIdle(); workspaces.SetUnrestricted(root.GetProperty("enabled").GetBoolean()); SendSettings(); }
             else if (type == "add_to_path") { agent.EnsureIdle(); AddToPath(); }
             else if (type == "configure")
-                agent.Configure(root.GetProperty("key").GetString() ?? "", root.GetProperty("model").GetString() ?? "");
+            {
+                agent.Configure(root.GetProperty("key").GetString() ?? "", root.GetProperty("model").GetString() ?? ""); SendState();
+            }
+            else if (type == "configure_providers")
+            {
+                var routes = root.GetProperty("routes").Deserialize<Dictionary<string, AgentRoute>>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+                agent.ConfigureProviders(root.GetProperty("provider").GetString() ?? "", root.GetProperty("openRouterKey").GetString() ?? "", root.GetProperty("openRouterModel").GetString() ?? "", root.GetProperty("nvidiaKey").GetString() ?? "", root.GetProperty("nvidiaModel").GetString() ?? "", routes);
+                SendState();
+            }
             else if (type == "cancel") agent.Cancel();
             else if (type == "copy_text")
             {
@@ -158,7 +166,7 @@ internal sealed class ElisaWindow : Form
             {
                 conversationId = root.GetProperty("conversationId").GetString() ?? "";
                 agent.EnsureIdle();
-                if (string.IsNullOrEmpty(store.Data.ApiKey)) throw new InvalidOperationException("Сначала настройте OpenRouter.");
+                _ = ProviderSettings.Resolve(store.Data);
                 string text = root.GetProperty("text").GetString() ?? "";
                 var files = Attachments.Parse(root);
                 if (conversationId.Length > 100 || string.IsNullOrWhiteSpace(conversationId) || text.Length > 50000 || (string.IsNullOrWhiteSpace(text) && files.Count == 0))
@@ -175,10 +183,12 @@ internal sealed class ElisaWindow : Form
 
     private void SendState()
     {
-        Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(store.Data.ApiKey), model = store.Data.Model,
+        Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(store.Data.SelectedProvider == "nvidia" ? store.Data.NvidiaApiKey : store.Data.ApiKey),
+            provider = store.Data.SelectedProvider, model = store.Data.SelectedProvider == "nvidia" ? store.Data.NvidiaModel : store.Data.Model,
+            openRouterModel = store.Data.Model, nvidiaModel = store.Data.NvidiaModel, openRouterConfigured = !string.IsNullOrEmpty(store.Data.ApiKey), nvidiaConfigured = !string.IsNullOrEmpty(store.Data.NvidiaApiKey), routes = store.Data.AgentRoutes,
             usage = store.Data.Usage,
             chats = store.Data.Chats.Select(c => new { id = c.Id, title = c.Title, preview = c.Preview,
-                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, images = m.Images, toolId = m.ToolId, toolName = m.ToolName, toolComment = m.ToolComment, toolStatus = m.ToolStatus, durationMs = m.DurationMs }) }) });
+                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, images = m.Images, toolId = m.ToolId, toolName = m.ToolName, toolComment = m.ToolComment, toolStatus = m.ToolStatus, durationMs = m.DurationMs, provider = m.Provider, model = m.Model }) }) });
         if (store.LoadError is not null) Send(new { type = "persistence_warning", text = store.LoadError });
     }
 
@@ -205,7 +215,7 @@ internal sealed class ElisaWindow : Form
                     if (item is not null) { item.DurationMs = root.GetProperty("durationMs").GetInt64(); item.ToolStatus = root.GetProperty("toolStatus").GetString(); }
                 }
                 else if (type == "thinking_start")
-                    chat.Messages.Add(new ChatItem { Role = type, ToolId = root.GetProperty("toolId").GetString(), ToolStatus = "running" });
+                    chat.Messages.Add(new ChatItem { Role = type, ToolId = root.GetProperty("toolId").GetString(), ToolStatus = "running", Provider = root.TryGetProperty("provider", out var provider) ? provider.GetString() : null, Model = root.TryGetProperty("model", out var model) ? model.GetString() : null });
                 else if (type == "tool_finish")
                 {
                     string toolId = root.GetProperty("toolId").GetString() ?? "";

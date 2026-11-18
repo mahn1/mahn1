@@ -20,6 +20,8 @@ internal sealed class ChatItem
     public string? ToolName { get; set; }
     public string? ToolComment { get; set; }
     public string? ToolStatus { get; set; }
+    public string? Provider { get; set; }
+    public string? Model { get; set; }
     public List<ChatImage> Images { get; set; } = [];
     public long DurationMs { get; set; }
     public List<string> Attachments { get; set; } = [];
@@ -34,7 +36,12 @@ internal sealed class ModelUsage
 internal sealed class SavedState
 {
     public string ApiKey { get; set; } = "";
-    public string Model { get; set; } = "openrouter/free";
+    public string Model { get; set; } = "openrouter/free"; // legacy OpenRouter model
+    public string NvidiaApiKey { get; set; } = "";
+    public string NvidiaModel { get; set; } = "deepseek-ai/deepseek-v4.1-flash";
+    public string SelectedProvider { get; set; } = "openrouter";
+    public Dictionary<string, AgentRoute> AgentRoutes { get; set; } = [];
+    public Dictionary<string, string> HistoryRoutes { get; set; } = [];
     public Dictionary<string, JsonArray> Histories { get; set; } = [];
     public List<ChatEntry> Chats { get; set; } = [];
     public Dictionary<string, ModelUsage> Usage { get; set; } = [];
@@ -59,6 +66,7 @@ internal sealed class LocalStore
             byte[] encrypted = File.ReadAllBytes(this.path);
             byte[] plaintext = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
             Data = JsonSerializer.Deserialize<SavedState>(plaintext) ?? throw new JsonException("Пустые данные.");
+            Data.AgentRoutes ??= []; Data.HistoryRoutes ??= [];
             foreach (var item in Data.Chats.SelectMany(c => c.Messages).Where(m => m.ToolStatus == "running"))
             {
                 item.ToolStatus = "interrupted";
@@ -85,7 +93,7 @@ internal sealed class LocalStore
         try { File.WriteAllBytes(tmp, encrypted); File.Move(tmp, path, true); }
         finally { if (File.Exists(tmp)) File.Delete(tmp); }
     }
-    public bool RecordUsage(JsonNode root, string fallbackModel)
+    public bool RecordUsage(JsonNode root, string fallbackModel, string provider = "openrouter")
     {
         if (root["usage"] is not JsonObject usage) return false;
         static long? Read(JsonNode? node)
@@ -99,6 +107,7 @@ internal sealed class LocalStore
         long totalValue = total ?? prompt!.Value + completion!.Value;
         string model = root["model"] is JsonValue value && value.TryGetValue<string>(out var actual) && !string.IsNullOrWhiteSpace(actual) ? actual : fallbackModel;
         if (model.Length > 200) model = model[..200];
+        if (provider == "nvidia") model = "NVIDIA · " + model;
         if (!Data.Usage.TryGetValue(model, out var record)) Data.Usage[model] = record = new();
         record.PromptTokens += prompt ?? 0; record.CompletionTokens += completion ?? 0;
         record.TotalTokens += totalValue; record.Requests++;
@@ -119,9 +128,10 @@ internal sealed class LocalStore
         if (index < 0) throw new ArgumentException("Чат не найден.");
         var chat = Data.Chats[index];
         Data.Histories.TryGetValue(id, out var history);
-        Data.Chats.RemoveAt(index); Data.Histories.Remove(id);
+        Data.HistoryRoutes.TryGetValue(id, out var historyRoute);
+        Data.Chats.RemoveAt(index); Data.Histories.Remove(id); Data.HistoryRoutes.Remove(id);
         try { Save(); }
-        catch { Data.Chats.Insert(index, chat); if (history is not null) Data.Histories[id] = history; throw; }
+        catch { Data.Chats.Insert(index, chat); if (history is not null) Data.Histories[id] = history; if (historyRoute is not null) Data.HistoryRoutes[id] = historyRoute; throw; }
     }
     public ChatEntry FindOrCreate(string id, string text, IReadOnlyList<Attachment> attachments)
     {

@@ -193,6 +193,52 @@ try
     Reject(() => ChatImages.FromFile(Path.Combine(outside, "outside.txt"), spaces), "image outside workspace allowed");
     restored.Data.Chats[0].Messages.Add(new ChatItem { Role = "assistant_image", Images = [ChatImages.FromBytes("cat.png", png)!] }); restored.Save();
     Assert(new LocalStore(storePath).Data.Chats[0].Messages[^1].Images[0].DataUrl.StartsWith("data:image/png"), "image preview not persisted");
+    // Provider settings migrate the legacy OpenRouter key, isolate secrets and route each agent.
+    var dualStore = new LocalStore(Path.Combine(temp, "dual-state.dat"));
+    var dualHandler = new FakeHandler(
+        ReplyWithTool("delegate_agent", "d-route", new { role = "research", task = "Исследуй" }),
+        """{"model":"deepseek-ai/deepseek-v4.1-flash","usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6},"choices":[{"message":{"role":"assistant","content":"Отчёт"}}]}""",
+        """{"choices":[{"message":{"role":"assistant","content":"Итог"}}]}""");
+    using (var dual = new Agent(_=>{}, spaces, new HttpClient(dualHandler), store: dualStore))
+    {
+        dual.Configure("or-secret", "or-model");
+        dual.ConfigureProviders("openrouter", "", "or-model", "nv-secret", "deepseek-ai/deepseek-v4.1-flash", new() { ["research"] = new AgentRoute { Provider = "nvidia", Model = "" } });
+        await dual.RunAsync("dual", "Исследуй");
+    }
+    Assert(dualHandler.Uris[0].Host == "openrouter.ai" && dualHandler.Uris[1].Host == "integrate.api.nvidia.com" && dualHandler.Uris[2].Host == "openrouter.ai", "wrong provider routing");
+    Assert(dualHandler.Auth[0] == "or-secret" && dualHandler.Auth[1] == "nv-secret" && dualHandler.Auth[2] == "or-secret", "provider key crossed endpoints");
+    Assert(JsonNode.Parse(dualHandler.Requests[1])!["model"]!.GetValue<string>() == "deepseek-ai/deepseek-v4.1-flash", "wrong child model");
+    Assert(dualStore.Data.Usage["NVIDIA · deepseek-ai/deepseek-v4.1-flash"].TotalTokens == 6, "nvidia usage not attributed");
+    var dualReloaded = new LocalStore(Path.Combine(temp, "dual-state.dat"));
+    Assert(dualReloaded.Data.ApiKey == "or-secret" && dualReloaded.Data.NvidiaApiKey == "nv-secret" && dualReloaded.Data.AgentRoutes["research"].Provider == "nvidia", "provider config not persisted");
+    Assert(!Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(temp, "dual-state.dat"))).Contains("nv-secret"), "nvidia key not encrypted");
+    var portable = ProviderSettings.PortableHistory(JsonNode.Parse("""[{"role":"assistant","content":"ok","reasoning_details":[{"secret":"provider"}]}]""")!.AsArray());
+    Assert(portable[0]!["content"]!.GetValue<string>() == "ok" && portable[0]!["reasoning_details"] is null, "provider-specific metadata not removed");
+    var nvHandler = new FakeHandler(answerReply);
+    using (var nv = new Agent(_=>{}, spaces, new HttpClient(nvHandler), store: dualReloaded))
+    {
+        nv.ConfigureProviders("nvidia", "", "or-model", "", "deepseek-ai/deepseek-v4.1-flash", new());
+        await nv.RunAsync("dual", "продолжи");
+        Assert(nvHandler.Uris[0].Host == "integrate.api.nvidia.com" && !JsonNode.Parse(nvHandler.Requests[0])!.AsObject().ContainsKey("plugins"), "NVIDIA request incorrectly uses OpenRouter options");
+        try { await nv.RunAsync("nvidia-pdf", "file", attachments); throw new Exception("unsupported NVIDIA attachment accepted"); } catch (InvalidOperationException ex) { Assert(ex.Message.Contains("PDF"), "wrong NVIDIA file error"); }
+    }
+    Assert(nvHandler.Requests.Count == 1, "unsupported file was sent to NVIDIA");
+    var pyCheck = await PythonRunner.RunAsync(new[] { "-c", "print('elisa-python-ok')" }, root, false, CancellationToken.None);
+    Assert(pyCheck.Contains("Код выхода: 0") && pyCheck.Contains("elisa-python-ok"), "Python execution failed");
+    var pyVenv = await PythonRunner.RunAsync(new[] { "-m", "venv", ".venv" }, root, false, CancellationToken.None);
+    Assert(pyVenv.Contains("Код выхода: 0"), "Python venv creation failed: " + pyVenv);
+    var pyVenvCheck = await PythonRunner.RunAsync(new[] { "-c", "import sys; print(sys.prefix)" }, root, true, CancellationToken.None);
+    Assert(pyVenvCheck.Contains("Код выхода: 0") && pyVenvCheck.Contains(".venv"), "venv not used");
+    var pyEvents = new List<string>(); var pyCalls = 0;
+    var pyHandler = new FakeHandler(ReplyWithTool("python_run", "py-1", new { args = new[] { "-c", "print(1)" }, workspace = 1, useVenv = false }), answerReply);
+    spaces.SetUnrestricted(true);
+    using (var pyAgent = new Agent(e=>pyEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(pyHandler), store: restored,
+        runPython: (arguments, folder, venv, ct) => { pyCalls++; Assert(folder == root && !venv, "wrong Python working directory"); return Task.FromResult("Код выхода: 0\nstdout:\n1\nstderr:\n"); })) await pyAgent.RunAsync("py-chat", "run");
+    Assert(pyCalls == 1 && pyEvents.Any(e=>e.Contains("python_run") && e.Contains("tool_finish") == false), "python tool did not run");
+    spaces.SetUnrestricted(false);
+    var pyBlockedHandler = new FakeHandler(ReplyWithTool("python_run", "py-2", new { args = new[] { "-c", "print(1)" }, workspace = 1, useVenv = false }), answerReply);
+    using (var pyBlocked = new Agent(_=>{}, spaces, new HttpClient(pyBlockedHandler), store: restored, runPython: (arguments, folder, venv, ct) => { throw new Exception("restricted Python ran"); })) await pyBlocked.RunAsync("blocked-py", "run");
+    Assert(JsonNode.Parse(pyBlockedHandler.Requests[1])!["messages"]!.AsArray().Last()!["content"]!.GetValue<string>().Contains("Полный доступ выключен"), "restricted Python not rejected");
     var attachHandler = new FakeHandler(answerReply);
     using (var attaching = new Agent(_ => {}, spaces, new HttpClient(attachHandler), store: restored)) await attaching.RunAsync("file-chat", "", attachments);
     var payload = JsonNode.Parse(attachHandler.Requests[0])!;
@@ -206,8 +252,11 @@ sealed class FakeHandler(params string[] responses) : HttpMessageHandler
 {
     private int index;
     public List<string> Requests { get; } = [];
+    public List<Uri> Uris { get; } = [];
+    public List<string?> Auth { get; } = [];
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        Uris.Add(request.RequestUri!); Auth.Add(request.Headers.Authorization?.Parameter);
         Requests.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(responses[index++], Encoding.UTF8, "application/json") };
     }

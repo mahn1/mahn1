@@ -7,6 +7,7 @@ import {updateToolMessages} from '../src/chatEvents.js';
 import {buildUsage} from '../src/InsightsPanel.jsx';
 import {formatDuration} from '../src/Thinking.jsx';
 import ChatImages, {safeImageSource} from '../src/ChatImages.jsx';
+import ProviderSettings, {normalizeRoutes} from '../src/ProviderSettings.jsx';
 
 const render = text => renderToStaticMarkup(<Markdown text={text} onCopy={()=>{}} onOpen={()=>{}}/>);
 describe('formatted responses',()=>{
@@ -74,5 +75,16 @@ describe('chat image previews',()=>{
     const html=renderToStaticMarkup(<ChatImages images={[{Name:'кот.png',DataUrl:png},{name:'remote',dataUrl:'https://example.org/image.png'},{name:'bad',dataUrl:'data:image/svg+xml;base64,PHN2Zz4='}]}/>);
     expect(html).toContain('кот.png'); expect(html).toContain(png); expect(html).not.toContain('example.org'); expect(html).not.toContain('svg');
     expect(safeImageSource('javascript:alert(1)')).toBe('');
+  });
+});
+
+describe('provider configuration',()=>{
+  it('supports separate models for agent roles and never exposes stored keys',()=>{
+    const routes=normalizeRoutes({research:{Provider:'nvidia',Model:'deepseek-ai/model'}});
+    expect(routes.research).toEqual({provider:'nvidia',model:'deepseek-ai/model'});
+    expect(routes.review.provider).toBe('inherit');
+    const html=renderToStaticMarkup(<ProviderSettings initial={{provider:'openrouter',openRouterModel:'openrouter/free',nvidiaModel:'deepseek-ai/deepseek-v4.1-flash',openRouterConfigured:true,nvidiaConfigured:true,routes:{}}} onSave={()=>{}}/>);
+    expect(html).toContain('NVIDIA Build'); expect(html).toContain('Модели агентов'); expect(html).toContain('сохранён');
+    expect(html).not.toContain('nvapi-');
   });
 });
