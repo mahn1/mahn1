@@ -26,6 +26,11 @@ internal sealed class ChatItem
     public long DurationMs { get; set; }
     public List<string> Attachments { get; set; } = [];
 }
+internal sealed class MemoryItem
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Text { get; set; } = "";
+}
 internal sealed class ModelUsage
 {
     public long PromptTokens { get; set; }
@@ -45,11 +50,15 @@ internal sealed class SavedState
     public Dictionary<string, JsonArray> Histories { get; set; } = [];
     public List<ChatEntry> Chats { get; set; } = [];
     public Dictionary<string, ModelUsage> Usage { get; set; } = [];
+    public List<MemoryItem> Memories { get; set; } = [];
+    public Dictionary<string, ProviderCap> ProviderCaps { get; set; } = [];
+    public Dictionary<string, DailyProviderUsage> DailyUsage { get; set; } = [];
 }
 
 /// <summary>DPAPI CurrentUser encrypts the complete state, including API key and model context.</summary>
 internal sealed class LocalStore
 {
+    public object Sync { get; } = new();
     private readonly string path;
     private readonly bool persist;
     private bool blocked;
@@ -66,7 +75,7 @@ internal sealed class LocalStore
             byte[] encrypted = File.ReadAllBytes(this.path);
             byte[] plaintext = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
             Data = JsonSerializer.Deserialize<SavedState>(plaintext) ?? throw new JsonException("Пустые данные.");
-            Data.AgentRoutes ??= []; Data.HistoryRoutes ??= [];
+            Data.AgentRoutes ??= []; Data.HistoryRoutes ??= []; Data.Memories ??= []; Data.ProviderCaps ??= []; Data.DailyUsage ??= [];
             foreach (var item in Data.Chats.SelectMany(c => c.Messages).Where(m => m.ToolStatus == "running"))
             {
                 item.ToolStatus = "interrupted";
@@ -112,6 +121,22 @@ internal sealed class LocalStore
         record.PromptTokens += prompt ?? 0; record.CompletionTokens += completion ?? 0;
         record.TotalTokens += totalValue; record.Requests++;
         return true;
+    }
+
+    public void AddMemory(string text)
+    {
+        text = text.Trim();
+        if (text.Length is < 1 or > 500 || text.Any(char.IsControl)) throw new ArgumentException("Запись памяти должна содержать 1–500 символов без переносов строк.");
+        if (Data.Memories.Count >= 40) throw new ArgumentException("В памяти уже 40 записей; удалите ненужную.");
+        if (Data.Memories.Any(x => string.Equals(x.Text, text, StringComparison.OrdinalIgnoreCase))) return;
+        var item = new MemoryItem { Text = text }; Data.Memories.Add(item);
+        try { Save(); } catch { Data.Memories.Remove(item); throw; }
+    }
+    public void RemoveMemory(string id)
+    {
+        int index = Data.Memories.FindIndex(x => x.Id == id); if (index < 0) throw new ArgumentException("Запись не найдена.");
+        var item = Data.Memories[index]; Data.Memories.RemoveAt(index);
+        try { Save(); } catch { Data.Memories.Insert(index, item); throw; }
     }
 
     public void RenameChat(string id, string title)

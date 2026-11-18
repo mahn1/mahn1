@@ -1,7 +1,7 @@
 import React, {useState} from 'react';
 import {TerminalSquare, ChevronDown, CheckCircle2, CircleAlert, Copy} from 'lucide-react';
 
-const titles = {python_run:'Python',delegate_agent:'Делегирование агенту',github_cli:'GitHub CLI',attach_image:'Изображение в чате',run_powershell:'PowerShell', list_workspaces:'Рабочие области', list_files:'Список файлов', read_file:'Чтение файла', write_file:'Запись файла', create_directory:'Создание папки'};
+const titles = {remember:'Память',search_project:'Поиск по проекту',project_overview:'Обзор проекта',verify_project:'Проверка проекта',delegate_parallel:'Параллельные агенты',python_run:'Python',delegate_agent:'Делегирование агенту',github_cli:'GitHub CLI',attach_image:'Изображение в чате',run_powershell:'PowerShell', list_workspaces:'Рабочие области', list_files:'Список файлов', read_file:'Чтение файла', write_file:'Запись файла', create_directory:'Создание папки'};
 const comments = {list_workspaces:'Проверяю доступные рабочие области', list_files:'Просматриваю файлы и папки', read_file:'Читаю содержимое файла', write_file:'Записываю изменения в файл', create_directory:'Создаю папку'};
 function fallbackComment(message) {
   const command = (message.command || '').toLowerCase();

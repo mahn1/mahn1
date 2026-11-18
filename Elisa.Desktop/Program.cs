@@ -127,6 +127,24 @@ internal sealed class ElisaWindow : Form
                 try { string status = await GitHubCli.StatusAsync(CancellationToken.None); Send(new { type = "github_status", text = status }); }
                 catch (Exception) { Send(new { type = "github_status", text = "GitHub CLI не найден или не запустился. Установите gh, перезапустите Elisa и войдите в GitHub." }); }
             }
+            else if (type == "memory_add")
+            {
+                agent.EnsureIdle(); store.AddMemory(root.GetProperty("text").GetString() ?? ""); Send(new { type = "memory_updated", memories = store.Data.Memories });
+            }
+            else if (type == "memory_remove")
+            {
+                agent.EnsureIdle(); store.RemoveMemory(root.GetProperty("id").GetString() ?? ""); Send(new { type = "memory_updated", memories = store.Data.Memories });
+            }
+            else if (type == "set_budget")
+            {
+                agent.EnsureIdle(); ProviderBudget.SetCaps(store, root.GetProperty("provider").GetString() ?? "", root.GetProperty("requests").GetInt64(), root.GetProperty("tokens").GetInt64());
+                Send(new { type = "budget_updated", caps = store.Data.ProviderCaps, daily = store.Data.DailyUsage });
+            }
+            else if (type == "openrouter_quota")
+            {
+                try { var quota = await agent.CheckOpenRouterQuotaAsync(CancellationToken.None); Send(new { type = "openrouter_quota", quota }); }
+                catch (Exception ex) { Send(new { type = "openrouter_quota_error", text = ex.Message }); }
+            }
             else if (type == "add_workspace")
             {
                 agent.EnsureIdle();
@@ -186,7 +204,7 @@ internal sealed class ElisaWindow : Form
         Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(store.Data.SelectedProvider == "nvidia" ? store.Data.NvidiaApiKey : store.Data.ApiKey),
             provider = store.Data.SelectedProvider, model = store.Data.SelectedProvider == "nvidia" ? store.Data.NvidiaModel : store.Data.Model,
             openRouterModel = store.Data.Model, nvidiaModel = store.Data.NvidiaModel, openRouterConfigured = !string.IsNullOrEmpty(store.Data.ApiKey), nvidiaConfigured = !string.IsNullOrEmpty(store.Data.NvidiaApiKey), routes = store.Data.AgentRoutes,
-            usage = store.Data.Usage,
+            usage = store.Data.Usage, memories = store.Data.Memories, caps = store.Data.ProviderCaps, daily = store.Data.DailyUsage,
             chats = store.Data.Chats.Select(c => new { id = c.Id, title = c.Title, preview = c.Preview,
                 messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, images = m.Images, toolId = m.ToolId, toolName = m.ToolName, toolComment = m.ToolComment, toolStatus = m.ToolStatus, durationMs = m.DurationMs, provider = m.Provider, model = m.Model }) }) });
         if (store.LoadError is not null) Send(new { type = "persistence_warning", text = store.LoadError });

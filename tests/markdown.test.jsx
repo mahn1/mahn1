@@ -8,6 +8,8 @@ import {buildUsage} from '../src/InsightsPanel.jsx';
 import {formatDuration} from '../src/Thinking.jsx';
 import ChatImages, {safeImageSource} from '../src/ChatImages.jsx';
 import ProviderSettings, {normalizeRoutes} from '../src/ProviderSettings.jsx';
+import MemoryPanel from '../src/MemoryPanel.jsx';
+import BudgetPanel from '../src/BudgetPanel.jsx';
 
 const render = text => renderToStaticMarkup(<Markdown text={text} onCopy={()=>{}} onOpen={()=>{}}/>);
 describe('formatted responses',()=>{
@@ -86,5 +88,16 @@ describe('provider configuration',()=>{
     const html=renderToStaticMarkup(<ProviderSettings initial={{provider:'openrouter',openRouterModel:'openrouter/free',nvidiaModel:'deepseek-ai/deepseek-v4.1-flash',openRouterConfigured:true,nvidiaConfigured:true,routes:{}}} onSave={()=>{}}/>);
     expect(html).toContain('NVIDIA Build'); expect(html).toContain('Модели агентов'); expect(html).toContain('сохранён');
     expect(html).not.toContain('nvapi-');
+  });
+});
+
+describe('memory and budgets',()=>{
+  it('shows saved memories and accurate quota data without inventing values',()=>{
+    const memory=renderToStaticMarkup(<MemoryPanel memories={[{Id:'a',Text:'Пиши на русском'}]} onAction={()=>{}}/>);
+    expect(memory).toContain('Пиши на русском'); expect(memory).toContain('Удалить заметку');
+    const empty=renderToStaticMarkup(<BudgetPanel onAction={()=>{}}/>);
+    expect(empty).toContain('Для NVIDIA остаток квоты здесь неизвестен');
+    const html=renderToStaticMarkup(<BudgetPanel caps={{openrouter:{Requests:12,Tokens:100}}} daily={{openrouter:{Date:'2026-11-17',Requests:2,Tokens:24}}} quota={{usageDaily:0.12,freeRequests:{remaining:8,limit:50}}} onAction={()=>{}}/>);
+    expect(html).toContain('8 осталось из 50'); expect(html).toContain('0.12'); expect(html).toContain('2026-11-17');
   });
 });

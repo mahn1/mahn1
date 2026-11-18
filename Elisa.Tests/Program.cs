@@ -239,6 +239,52 @@ try
     var pyBlockedHandler = new FakeHandler(ReplyWithTool("python_run", "py-2", new { args = new[] { "-c", "print(1)" }, workspace = 1, useVenv = false }), answerReply);
     using (var pyBlocked = new Agent(_=>{}, spaces, new HttpClient(pyBlockedHandler), store: restored, runPython: (arguments, folder, venv, ct) => { throw new Exception("restricted Python ran"); })) await pyBlocked.RunAsync("blocked-py", "run");
     Assert(JsonNode.Parse(pyBlockedHandler.Requests[1])!["messages"]!.AsArray().Last()!["content"]!.GetValue<string>().Contains("Полный доступ выключен"), "restricted Python not rejected");
+    // Memory persists and context compaction never mutates the original or splits tool exchanges.
+    var memoryStore = new LocalStore(Path.Combine(temp, "mem-state.dat")); memoryStore.AddMemory("Предпочитаю русский язык");
+    Assert(new LocalStore(Path.Combine(temp, "mem-state.dat")).Data.Memories.Single().Text == "Предпочитаю русский язык", "memory not persisted");
+    var longHistory = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = "system" });
+    for (int n=0;n<6;n++) { longHistory.Add(new JsonObject { ["role"]="user", ["content"]="Вопрос "+n+" "+new string('x',500) }); longHistory.Add(new JsonObject { ["role"]="assistant", ["content"]="Ответ "+n }); }
+    string originalHistory=longHistory.ToJsonString(); var shortHistory=ChatContext.Prepare(longHistory,memoryStore.Data.Memories,out bool compacted,1000);
+    Assert(compacted && longHistory.ToJsonString()==originalHistory && shortHistory.Count==7, "context compaction damaged history");
+    Assert(shortHistory[0]!["content"]!.GetValue<string>().Contains("Предпочитаю русский") && shortHistory[0]!["content"]!.GetValue<string>().Contains("Вопрос 0"), "context summary or memory missing");
+    memoryStore.RemoveMemory(memoryStore.Data.Memories[0].Id); Assert(new LocalStore(Path.Combine(temp, "mem-state.dat")).Data.Memories.Count==0,"memory deletion not persisted");
+
+    Directory.CreateDirectory(Path.Combine(root,"src")); File.WriteAllText(Path.Combine(root,"src","search.py"),"def unique_feline_search():\n    return 42\n");
+    File.WriteAllText(Path.Combine(root,"credentials.json"),"unique_feline_search secret");
+    Directory.CreateDirectory(Path.Combine(root,"node_modules")); File.WriteAllText(Path.Combine(root,"node_modules","skip.py"),"unique_feline_search");
+    string indexed=ProjectIndex.Search(spaces,1,"unique_feline_search",CancellationToken.None);
+    Assert(indexed.Contains("search.py") && !indexed.Contains("credentials.json") && !indexed.Contains("skip.py"),"project index included excluded files or missed code");
+    Assert(ProjectIndex.Overview(spaces,1,CancellationToken.None).Contains("search.py"),"project overview missing file");
+    var budgetStore=new LocalStore(persist:false); ProviderBudget.SetCaps(budgetStore,"openrouter",1,0); ProviderBudget.Begin(budgetStore,"openrouter");
+    try { ProviderBudget.Begin(budgetStore,"openrouter"); throw new Exception("request budget ignored"); } catch(InvalidOperationException) { }
+    ProviderBudget.SetCaps(budgetStore,"openrouter",0,10); ProviderBudget.AddUsage(budgetStore,"openrouter",JsonNode.Parse("""{"usage":{"total_tokens":11}}""")!);
+    try { ProviderBudget.Begin(budgetStore,"openrouter"); throw new Exception("token budget ignored"); } catch(InvalidOperationException) { }
+    var quotaHandler = new QuotaHandler(); var quota = JsonSerializer.Serialize(await ProviderBudget.OpenRouterQuotaAsync(new HttpClient(quotaHandler),"quota-secret",CancellationToken.None));
+    Assert(quotaHandler.Host=="openrouter.ai" && quotaHandler.Key=="quota-secret" && quota.Contains("remaining") && !quota.Contains("quota-secret"), "quota response or key handling failed");
+
+    var parallelHandler=new ParallelHandler(ReplyWithTool("delegate_parallel", "parallel-1", new { tasks=new[] { new { role="research", task="Изучи A" }, new { role="review", task="Изучи B" } } }));
+    var parallelEvents=new System.Collections.Concurrent.ConcurrentQueue<string>();
+    using(var parallelAgent=new Agent(e=>parallelEvents.Enqueue(JsonSerializer.Serialize(e)), spaces, new HttpClient(parallelHandler), store:restored)) await parallelAgent.RunAsync("parallel", "Проверь проект");
+    Assert(parallelHandler.ChildRequests==2 && parallelHandler.MaxConcurrent==2, "agents were not actually concurrent");
+    Assert(parallelHandler.ChildBodies.All(body=>!JsonNode.Parse(body)!["tools"]!.AsArray().Any(t => new[] { "run_powershell", "write_file", "github_cli" }.Contains(t?["function"]?["name"]?.GetValue<string>()))), "parallel agent has write tools");
+    Assert(parallelEvents.Any(e=>e.Contains("delegate_parallel") && e.Contains("tool_start")), "parallel action not visible");
+
+    var maliciousReply=ReplyWithTool("write_file", "bad-write", new { workspace=1, path="parallel-should-not-exist.txt", content="bad" });
+    var maliciousHandler=new ParallelHandler(ReplyWithTool("delegate_parallel", "parallel-2", new { tasks=new[] { new { role="research", task="A" }, new { role="review", task="B" } } }), maliciousReply);
+    using(var readOnlyAgent=new Agent(_=>{}, spaces, new HttpClient(maliciousHandler), store:restored)) await readOnlyAgent.RunAsync("parallel-restrictions", "Проверь");
+    Assert(!File.Exists(Path.Combine(root,"parallel-should-not-exist.txt")), "parallel agent bypassed read-only enforcement");
+
+    string checkDir=Path.Combine(temp,"checks"); Directory.CreateDirectory(checkDir);
+    File.WriteAllText(Path.Combine(checkDir,"package.json"), """{"scripts":{"test":"node -e \"console.log('verified')\""}}""");
+    string verification=await ProjectChecks.VerifyAsync(checkDir,CancellationToken.None);
+    Assert(verification.Contains("verified") && verification.Contains("Код выхода: 0"), "project test command failed: "+verification);
+    File.WriteAllText(Path.Combine(root,"package.json"), """{"scripts":{"test":"node -e \"console.log('auto-check-ok')\""}}""");
+    var autoHandler=new FakeHandler(ReplyWithTool("write_file", "write-auto", new { workspace=1, path="autocheck.py", content="print(42)" }), answerReply, answerReply);
+    var autoEvents=new List<string>(); spaces.SetUnrestricted(true);
+    using(var autoAgent=new Agent(e=>autoEvents.Add(JsonSerializer.Serialize(e)),spaces,new HttpClient(autoHandler),store:restored)) await autoAgent.RunAsync("auto-check", "Измени код");
+    Assert(autoHandler.Requests.Count==3 && autoEvents.Any(e=>e.Contains("verify_project") && e.Contains("tool_start")) && autoEvents.Any(e=>e.Contains("auto-check-ok")),"automatic check not run after code write");
+    Assert(JsonNode.Parse(autoHandler.Requests[2])!["messages"]!.AsArray().Last()!["content"]!.GetValue<string>().Contains("auto-check-ok"),"check result not provided to model");
+    spaces.SetUnrestricted(false);
     var attachHandler = new FakeHandler(answerReply);
     using (var attaching = new Agent(_ => {}, spaces, new HttpClient(attachHandler), store: restored)) await attaching.RunAsync("file-chat", "", attachments);
     var payload = JsonNode.Parse(attachHandler.Requests[0])!;
@@ -260,4 +306,32 @@ sealed class FakeHandler(params string[] responses) : HttpMessageHandler
         Requests.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(responses[index++], Encoding.UTF8, "application/json") };
     }
+}
+
+sealed class QuotaHandler : HttpMessageHandler
+{
+    public string? Host; public string? Key;
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        Host=request.RequestUri!.Host; Key=request.Headers.Authorization?.Parameter;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content=new StringContent("""{"data":{"usage_daily":0.12,"free_model_daily_requests":{"remaining":5,"limit":50}}}""") });
+    }
+}
+sealed class ParallelHandler(string first, string? malicious = null) : HttpMessageHandler
+{
+    private int count, active, maxConcurrent; private readonly TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public int MaxConcurrent => maxConcurrent;
+    public int ChildRequests; public System.Collections.Concurrent.ConcurrentBag<string> ChildBodies = new();
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        int n=Interlocked.Increment(ref count); string body=await request.Content!.ReadAsStringAsync(ct);
+        if (n==1) return Reply(first);
+        if (n is 2 or 3) {
+            ChildBodies.Add(body); Interlocked.Increment(ref ChildRequests); int now=Interlocked.Increment(ref active); if(now==2) { maxConcurrent=2; gate.TrySetResult(); }
+            await gate.Task.WaitAsync(TimeSpan.FromSeconds(10),ct); Interlocked.Decrement(ref active);
+            return Reply(n == 2 && malicious is not null ? malicious : """{"choices":[{"message":{"role":"assistant","content":"Отчёт"}}]}""");
+        }
+        return Reply("""{"choices":[{"message":{"role":"assistant","content":"Итог"}}]}""");
+    }
+    private static HttpResponseMessage Reply(string text) => new(HttpStatusCode.OK) { Content=new StringContent(text,Encoding.UTF8,"application/json") };
 }

@@ -10,6 +10,8 @@ import InsightsPanel from './InsightsPanel.jsx';
 import Thinking from './Thinking.jsx';
 import ChatImages from './ChatImages.jsx';
 import ProviderSettings, {initialProviderSettings} from './ProviderSettings.jsx';
+import MemoryPanel from './MemoryPanel.jsx';
+import BudgetPanel from './BudgetPanel.jsx';
 
 const prompts = [
   {icon: Code2, label: 'Написать код', text: 'Помоги написать код для моего проекта'},
@@ -42,6 +44,11 @@ function App() {
   const [contextMenu,setContextMenu] = useState(null);
   const [renameTarget,setRenameTarget] = useState(null);
   const [renameText,setRenameText] = useState('');
+  const [memories,setMemories] = useState([]);
+  const [caps,setCaps] = useState({});
+  const [daily,setDaily] = useState({});
+  const [quota,setQuota] = useState(null);
+  const [quotaError,setQuotaError] = useState('');
   const [githubStatus,setGithubStatus] = useState('Проверьте подключение после входа.');
   const [busyChat,setBusyChat] = useState(null);
   const [attachments, setAttachments] = useState([]);
@@ -56,10 +63,15 @@ function App() {
     const receive = ({data}) => {
       if (data.type === 'configured') {setConfigured(true);setModel(data.model);setModal(null);setToast('Настройки сохранены и защищены средствами Windows.');}
       if (data.type === 'state_loaded') {
-        setConfigured(data.configured); setModel(data.model); setProviderSettings({provider:data.provider,openRouterModel:data.openRouterModel,nvidiaModel:data.nvidiaModel,openRouterConfigured:data.openRouterConfigured,nvidiaConfigured:data.nvidiaConfigured,routes:data.routes || {}}); setUsage(data.usage || {});
+        setConfigured(data.configured); setModel(data.model); setProviderSettings({provider:data.provider,openRouterModel:data.openRouterModel,nvidiaModel:data.nvidiaModel,openRouterConfigured:data.openRouterConfigured,nvidiaConfigured:data.nvidiaConfigured,routes:data.routes || {}}); setUsage(data.usage || {}); setMemories(data.memories || []); setCaps(data.caps || {}); setDaily(data.daily || {});
         setChats(data.chats.map(({messages,...chat})=>chat));
         setMessages(Object.fromEntries(data.chats.map(chat=>[chat.id,chat.messages])));
       }
+      if (data.type === 'memory_updated') setMemories(data.memories || []);
+      if (data.type === 'budget_updated') {setCaps(data.caps || {});setDaily(data.daily || {});}
+      if (data.type === 'openrouter_quota') {setQuota(data.quota);setQuotaError('');}
+      if (data.type === 'openrouter_quota_error') {setQuota(null);setQuotaError(data.text);}
+      if (data.type === 'context_compacted') setToast('Старые сообщения сокращены для запроса; полная история сохранена.');
       if (data.type === 'persistence_warning') setToast(data.text);
       if (data.type === 'usage_updated') setUsage(data.usage || {});
       if (data.type === 'storage_ready') setStoragePath(data.path);
@@ -168,14 +180,14 @@ function App() {
     {contextMenu&&<><div className="context-dismiss" onClick={()=>setContextMenu(null)} onContextMenu={e=>{e.preventDefault();setContextMenu(null)}}/><div className="chat-context" style={{left:contextMenu.x,top:contextMenu.y}}><button disabled={busy} onClick={()=>{setRenameTarget(contextMenu.id);setRenameText(contextMenu.title);setContextMenu(null)}}><PenLine size={15}/> Переименовать</button><button disabled={busy} className="delete-chat" onClick={()=>{desktopAction({type:'delete_chat',id:contextMenu.id});setContextMenu(null)}}><Trash2 size={15}/> Удалить чат</button>{busy&&<span>Дождитесь завершения запроса</span>}</div></>}
     {renameTarget&&<div className="modal-backdrop" onMouseDown={()=>setRenameTarget(null)}><form className="modal rename-modal" onMouseDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();if(renameText.trim())desktopAction({type:'rename_chat',id:renameTarget,title:renameText.trim()})}}><div className="modal-head"><div><span className="section-eyebrow">ВАШИ ДИАЛОГИ</span><h2>Переименовать чат</h2></div><button type="button" className="icon-button" onClick={()=>setRenameTarget(null)}><X size={18}/></button></div><label className="field-label" htmlFor="chat-title">Название</label><input id="chat-title" className="settings-input" value={renameText} maxLength={120} autoFocus onChange={e=>setRenameText(e.target.value)}/><button className="done-button" disabled={!renameText.trim()||busy}>Сохранить</button></form></div>}
     {modal && <div className="modal-backdrop" onMouseDown={()=>setModal(null)}><div className={'modal '+(modal==='search'?'search-modal':'')} onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><span className="section-eyebrow">{modal==='search'?'ВАШИ ДИАЛОГИ':'ВАШЕ ПРОСТРАНСТВО'}</span><h2>{modal==='search'?'Поиск по чатам':'Настройки'}</h2></div><button className="icon-button" onClick={()=>setModal(null)} aria-label="Закрыть"><X size={19}/></button></div>{modal==='search'?<><label className="search-field"><Search size={18}/><input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Найти чат..."/></label><div className="search-results">{filtered.length?filtered.map(c=><button key={c.id} onClick={()=>openChat(c.id)}><MessageSquare size={16}/><span>{c.title}<small>Сохранённые</small></span><ChevronRight size={16}/></button>):<p>Чаты не найдены</p>}</div></>:<div className="settings-content">
-      <div className="settings-tabs"><button className={settingsTab==='workspaces'?'selected':''} onClick={()=>setSettingsTab('workspaces')}>Рабочие области</button><button className={settingsTab==='provider'?'selected':''} onClick={()=>setSettingsTab('provider')}>Модели</button><button className={settingsTab==='github'?'selected':''} onClick={()=>setSettingsTab('github')}>GitHub</button><button className={settingsTab==='system'?'selected':''} onClick={()=>setSettingsTab('system')}>Система</button></div>
+      <div className="settings-tabs"><button className={settingsTab==='workspaces'?'selected':''} onClick={()=>setSettingsTab('workspaces')}>Рабочие области</button><button className={settingsTab==='provider'?'selected':''} onClick={()=>setSettingsTab('provider')}>Модели</button><button className={settingsTab==='memory'?'selected':''} onClick={()=>setSettingsTab('memory')}>Память</button><button className={settingsTab==='budget'?'selected':''} onClick={()=>setSettingsTab('budget')}>Лимиты</button><button className={settingsTab==='github'?'selected':''} onClick={()=>setSettingsTab('github')}>GitHub</button><button className={settingsTab==='system'?'selected':''} onClick={()=>setSettingsTab('system')}>Система</button></div>
       {settingsTab==='workspaces'?<>
         <div className="settings-block"><div className="settings-icon"><FolderClosed size={19}/></div><div><h3>Папки для работы</h3><p>Файлы в выбранных папках доступны агенту автоматически.</p></div></div>
         <div className="workspace-list">{paths.length?paths.map(path=><div className="workspace-row" key={path}><FolderClosed size={16}/><span title={path}>{path}</span><button disabled={busy} title="Удалить" onClick={()=>desktopAction({type:'remove_workspace',path})}><Trash2 size={16}/></button></div>):<div className="workspace-empty">Рабочие области пока не добавлены</div>}</div>
         <button className="settings-secondary" disabled={busy} onClick={()=>desktopAction({type:'add_workspace'})}><FolderPlus size={16}/> Добавить папку</button>
         <div className="workspace-toggle"><div><strong>Полный доступ к Windows</strong><p>Включает PowerShell и Python без ограничений выбранными папками.</p></div><label className="switch"><input aria-label="Полный доступ к Windows" type="checkbox" checked={unrestricted} disabled={busy} onChange={e=>desktopAction({type:'set_unrestricted',enabled:e.target.checked})}/><span/></label></div>
         <div className={'access-warning '+(unrestricted?'danger':'')}><ShieldAlert size={17}/><span>{unrestricted?'Включён полный доступ: агент может изменять и удалять любые доступные файлы, запускать программы и обращаться в сеть без подтверждений.':'Без подтверждений агент может читать и перезаписывать файлы в выбранных папках. Это ограничение путей, а не песочница Windows.'}</span></div>
-      </>:settingsTab==='provider'?<ProviderSettings initial={providerSettings} busy={busy} onSave={desktopAction}/>:settingsTab==='github'?<>
+      </>:settingsTab==='provider'?<ProviderSettings initial={providerSettings} busy={busy} onSave={desktopAction}/>:settingsTab==='memory'?<MemoryPanel memories={memories} onAction={desktopAction} busy={busy}/>:settingsTab==='budget'?<BudgetPanel caps={caps} daily={daily} quota={quota} quotaError={quotaError} onAction={desktopAction} busy={busy}/>:settingsTab==='github'?<>
         <div className="settings-block"><div className="settings-icon"><Code2 size={19}/></div><div><h3>GitHub CLI</h3><p>Elisa использует учётную запись, в которую вы вошли через gh.</p></div></div>
         <div className="access-warning danger"><ShieldAlert size={17}/><span>Агенты могут работать с приватными репозиториями, удалять и менять данные без подтверждений в пределах выданных GitHub прав. gh может читать и изменять локальные файлы вне рабочих областей. Результаты команд отправляются модели.</span></div>
         <p className="settings-system-description">Установите GitHub CLI (gh), перезапустите Elisa и выполните вход в открывшемся терминале и браузере. Разрешения определяются учётной записью и настройками организаций. Токен в чат вводить не нужно.</p>
