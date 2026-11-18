@@ -4,6 +4,8 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import Markdown from '../src/Markdown.jsx';
 import ToolActivity from '../src/ToolActivity.jsx';
 import {updateToolMessages} from '../src/chatEvents.js';
+import {buildUsage} from '../src/InsightsPanel.jsx';
+import {formatDuration} from '../src/Thinking.jsx';
 
 const render = text => renderToStaticMarkup(<Markdown text={text} onCopy={()=>{}} onOpen={()=>{}}/>);
 describe('formatted responses',()=>{
@@ -14,6 +16,12 @@ describe('formatted responses',()=>{
     expect(html).toContain('<table>');
     expect(html).toContain('Копировать');
     expect(html).toContain('language-js');
+  });
+  it('offers file opening for inline filenames but not fenced code',()=>{
+    const html=render('Файл: `котик.txt` и `котик.svg`\n\n```txt\nкотик.txt\n```');
+    expect((html.match(/class="file-reference"/g)||[]).length).toBe(2);
+    expect(html).toContain('Открыть файл');
+    expect(render('[файл](file:///C:/Users/User/Desktop/file.txt)')).toContain('file:///C:/Users/User/Desktop/file.txt');
   });
   it('does not render raw HTML or automatically load remote images',()=>{
     const html=render('<script>alert(1)</script>\n\n![secret](https://example.com/track.png)');
@@ -43,5 +51,18 @@ describe('live activity',()=>{
     expect(list).toHaveLength(2);
     expect(list[0]).toMatchObject({command:'Get-ChildItem',toolComment:'Просматриваю папку',text:'done',toolStatus:'done'});
     expect(list[1].toolStatus).toBe('running');
+  });
+});
+
+describe('dashboard',()=>{
+  it('uses returned model usage rather than demo values',()=>{
+    expect(buildUsage({})).toEqual([]);
+    const usage=buildUsage({'vendor/a':{TotalTokens:32,PromptTokens:20,CompletionTokens:12,Requests:1},'vendor/b':{TotalTokens:50}});
+    expect(usage.map(x=>x.name)).toEqual(['vendor/b','vendor/a']);
+    expect(usage[1]).toMatchObject({total:32,prompt:20,completion:12});
+  });
+  it('formats durations under and over one minute',()=>{
+    expect(formatDuration(31000)).toBe('31 с');
+    expect(formatDuration(91000)).toBe('1 мин 31 с');
   });
 });

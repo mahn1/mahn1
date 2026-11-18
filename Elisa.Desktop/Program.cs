@@ -22,6 +22,7 @@ internal sealed class ElisaWindow : Form
     private readonly Agent agent;
     private readonly Workspaces workspaces = new();
     private readonly LocalStore store = new();
+    private readonly LocalLibrary library = new();
 
     public ElisaWindow()
     {
@@ -81,7 +82,37 @@ internal sealed class ElisaWindow : Form
             using var document = JsonDocument.Parse(e.WebMessageAsJson);
             var root = document.RootElement;
             string type = root.GetProperty("type").GetString() ?? "";
-            if (type == "get_settings") { SendSettings(); SendState(); }
+            if (type == "get_settings") { SendSettings(); SendState(); try { library.Ensure(); Send(new { type = "storage_ready", path = library.Root }); } catch (Exception) { Send(new { type = "persistence_warning", text = "Не удалось создать локальное хранилище." }); } }
+            else if (type == "rename_chat")
+            {
+                agent.EnsureIdle(); string id = root.GetProperty("id").GetString() ?? "";
+                store.RenameChat(id, root.GetProperty("title").GetString() ?? "");
+                Send(new { type = "chat_renamed", id, title = store.Data.Chats.Find(c => c.Id == id)!.Title });
+            }
+            else if (type == "delete_chat")
+            {
+                agent.EnsureIdle(); string id = root.GetProperty("id").GetString() ?? "";
+                store.DeleteChat(id); Send(new { type = "chat_deleted", id });
+            }
+            else if (type == "open_storage")
+            {
+                library.Ensure(); Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true, ArgumentList = { library.Root } });
+            }
+            else if (type == "add_storage_workspace")
+            {
+                agent.EnsureIdle(); library.Ensure(); workspaces.Add(library.Root); SendSettings();
+                Send(new { type = "storage_added" });
+            }
+            else if (type == "open_file")
+            {
+                string file = FileAccess.Resolve(root.GetProperty("path").GetString() ?? "", workspaces, Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+                if (FileAccess.CanOpenDirectly(file)) Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+                else
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true, ArgumentList = { "/select," + file } });
+                    Send(new { type = "file_revealed" });
+                }
+            }
             else if (type == "add_workspace")
             {
                 agent.EnsureIdle();
@@ -131,8 +162,9 @@ internal sealed class ElisaWindow : Form
     private void SendState()
     {
         Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(store.Data.ApiKey), model = store.Data.Model,
+            usage = store.Data.Usage,
             chats = store.Data.Chats.Select(c => new { id = c.Id, title = c.Title, preview = c.Preview,
-                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, toolId = m.ToolId, toolName = m.ToolName, toolComment = m.ToolComment, toolStatus = m.ToolStatus }) }) });
+                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, toolId = m.ToolId, toolName = m.ToolName, toolComment = m.ToolComment, toolStatus = m.ToolStatus, durationMs = m.DurationMs }) }) });
         if (store.LoadError is not null) Send(new { type = "persistence_warning", text = store.LoadError });
     }
 
@@ -141,13 +173,21 @@ internal sealed class ElisaWindow : Form
         using var data = JsonDocument.Parse(JsonSerializer.Serialize(message));
         var root = data.RootElement;
         string type = root.GetProperty("type").GetString() ?? "";
-        if (type is "answer" or "step" or "tool_result" or "error" or "tool_start" or "tool_finish")
+        if (type is "answer" or "step" or "tool_result" or "error" or "tool_start" or "tool_finish" or "thinking_start" or "thinking_finish")
         {
             string id = root.TryGetProperty("conversationId", out var idNode) ? idNode.GetString() ?? "" : "";
             var chat = store.Data.Chats.Find(c => c.Id == id);
             if (chat is not null)
             {
-                if (type == "tool_finish")
+                if (type == "thinking_finish")
+                {
+                    string toolId = root.GetProperty("toolId").GetString() ?? "";
+                    var item = chat.Messages.LastOrDefault(m => m.Role == "thinking_start" && m.ToolId == toolId);
+                    if (item is not null) { item.DurationMs = root.GetProperty("durationMs").GetInt64(); item.ToolStatus = root.GetProperty("toolStatus").GetString(); }
+                }
+                else if (type == "thinking_start")
+                    chat.Messages.Add(new ChatItem { Role = type, ToolId = root.GetProperty("toolId").GetString(), ToolStatus = "running" });
+                else if (type == "tool_finish")
                 {
                     string toolId = root.GetProperty("toolId").GetString() ?? "";
                     var item = chat.Messages.LastOrDefault(m => m.Role == "tool_start" && m.ToolId == toolId);

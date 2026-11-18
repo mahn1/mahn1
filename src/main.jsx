@@ -1,11 +1,13 @@
 import React, {useState, useRef, useEffect} from 'react';
 import {createRoot} from 'react-dom/client';
-import {PanelLeftClose, PanelLeftOpen, SquarePen, Search, MessageSquare, ChevronRight, MoreHorizontal, ArrowUp, SlidersHorizontal, Code2, Lightbulb, PenLine, BookOpen, Sparkles, ArrowUpRight, X, Globe2, Clock3, Menu, Square, ShieldAlert, TerminalSquare, FolderPlus, Trash2, FolderClosed, Paperclip, FileText} from 'lucide-react';
+import {PanelLeftClose, PanelLeftOpen, SquarePen, Search, MessageSquare, ChevronRight, MoreHorizontal, ArrowUp, SlidersHorizontal, Code2, Lightbulb, PenLine, BookOpen, Sparkles, ArrowUpRight, X, Globe2, Clock3, Menu, Square, ShieldAlert, TerminalSquare, FolderPlus, Trash2, FolderClosed, Paperclip, FileText, BarChart3} from 'lucide-react';
 import './styles.css';
 import logo from '../assets/elisa-logo.svg';
 import Markdown from './Markdown.jsx';
 import {updateToolMessages} from './chatEvents.js';
 import ToolActivity from './ToolActivity.jsx';
+import InsightsPanel from './InsightsPanel.jsx';
+import Thinking from './Thinking.jsx';
 
 const prompts = [
   {icon: Code2, label: 'Написать код', text: 'Помоги написать код для моего проекта'},
@@ -33,22 +35,38 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [toast, setToast] = useState('');
+  const [usage,setUsage] = useState({});
+  const [storagePath,setStoragePath] = useState('');
+  const [panelOpen,setPanelOpen] = useState(()=>window.innerWidth >= 1150);
+  const [contextMenu,setContextMenu] = useState(null);
+  const [renameTarget,setRenameTarget] = useState(null);
+  const [renameText,setRenameText] = useState('');
+  const [busyChat,setBusyChat] = useState(null);
   const [attachments, setAttachments] = useState([]);
   const [dragging, setDragging] = useState(false);
   const textarea = useRef(null);
   const endRef = useRef(null);
   useEffect(()=>{ const handleKey = (event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setActive(null); setDraft(''); setAttachments([]); } }; window.addEventListener('keydown', handleKey); return () => window.removeEventListener('keydown', handleKey); }, []);
+  useEffect(()=>{const close=e=>{if(e.key==='Escape')setContextMenu(null)};window.addEventListener('keydown',close);return ()=>window.removeEventListener('keydown',close)},[]);
   useEffect(()=>{ if(!toast)return; const timer=setTimeout(()=>setToast(''),5000);return ()=>clearTimeout(timer)},[toast]);
   useEffect(()=>{
     if (!desktop) return;
     const receive = ({data}) => {
       if (data.type === 'configured') {setConfigured(true);setModel(data.model);setApiKey('');setModal(null);setToast('Настройки сохранены и защищены средствами Windows.');}
       if (data.type === 'state_loaded') {
-        setConfigured(data.configured); setModel(data.model); setModelInput(data.model);
+        setConfigured(data.configured); setModel(data.model); setModelInput(data.model); setUsage(data.usage || {});
         setChats(data.chats.map(({messages,...chat})=>chat));
         setMessages(Object.fromEntries(data.chats.map(chat=>[chat.id,chat.messages])));
       }
       if (data.type === 'persistence_warning') setToast(data.text);
+      if (data.type === 'usage_updated') setUsage(data.usage || {});
+      if (data.type === 'storage_ready') setStoragePath(data.path);
+      if (data.type === 'storage_added') setToast('Хранилище добавлено в рабочие области.');
+      if (data.type === 'file_revealed') setToast('Потенциально исполняемый файл показан в Проводнике, без запуска.');
+      if (data.type === 'chat_renamed') {setChats(prev=>prev.map(chat=>chat.id===data.id?{...chat,title:data.title}:chat));setRenameTarget(null);}
+      if (data.type === 'chat_deleted') {setChats(prev=>prev.filter(chat=>chat.id!==data.id));setMessages(prev=>{const copy={...prev};delete copy[data.id];return copy});setActive(prev=>prev===data.id?null:prev);setToast('Чат удалён.');}
+      if (data.type === 'thinking_start') {setStatus('');setMessages(prev=>({...prev,[data.conversationId]:[...(prev[data.conversationId]||[]),{role:'thinking_start',toolId:data.toolId,toolStatus:'running',startedAt:Date.now()}]}));}
+      if (data.type === 'thinking_finish') setMessages(prev=>({...prev,[data.conversationId]:(prev[data.conversationId]||[]).map(item=>item.toolId===data.toolId?{...item,durationMs:data.durationMs,toolStatus:data.toolStatus}:item)}));
       if (data.type === 'workspace_settings') {setPaths(data.paths);setUnrestricted(data.unrestricted);}
       if (data.type === 'copied') setToast('Скопировано.');
       if (data.type === 'path_added') setToast('Папка Elisa добавлена в PATH. Перезапустите терминал.');
@@ -56,10 +74,10 @@ function App() {
       if (data.type === 'tool_start' || data.type === 'tool_finish') setMessages(prev=>({...prev,[data.conversationId]:updateToolMessages(prev[data.conversationId]||[],data)}));
       if (['answer','step','tool_result'].includes(data.type)) {
         setMessages(prev=>({...prev,[data.conversationId]:[...(prev[data.conversationId]||[]),{role:data.type,text:data.text,command:data.command}]}));
-        if (data.type === 'answer') {setBusy(false);setStatus('');}
+        if (data.type === 'answer') {setBusy(false);setBusyChat(null);setStatus('');}
       }
       if (data.type === 'error') {
-        if (data.conversationId) {setMessages(prev=>({...prev,[data.conversationId]:[...(prev[data.conversationId]||[]),{role:'error',text:data.text}]}));setBusy(false);setStatus('');}
+        if (data.conversationId) {setMessages(prev=>({...prev,[data.conversationId]:[...(prev[data.conversationId]||[]),{role:'error',text:data.text}]}));setBusy(false);setBusyChat(null);setStatus('');}
         else setToast(data.text);
       }
     };
@@ -68,7 +86,7 @@ function App() {
     return ()=>window.chrome.webview.removeEventListener('message',receive);
   },[]);
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:'smooth',block:'end'});},[messages,status,active]);
-  const newChat = () => {setActive(null);setDraft('');setAttachments([])};
+  const newChat = () => {setActive(null);setDraft('');setAttachments([]);setContextMenu(null)};
   const openChat = (id) => {setActive(id);setModal(null);setDraft('');setAttachments([])};
   const addFiles = (files) => {
     const incoming = Array.from(files);
@@ -98,6 +116,7 @@ function App() {
       let id=active;
       if(!id){id=crypto.randomUUID();setChats(prev=>[{id,title:preview.length>36?preview.slice(0,36)+'…':preview,preview},...prev]);setActive(id);}
       setMessages(prev=>({...prev,[id]:[...(prev[id]||[]),{role:'user',text:value,attachments:names}]}));
+      setBusyChat(id);
       setDraft('');setAttachments([]);setStatus('Отправляю запрос в OpenRouter…');
       window.chrome.webview.postMessage({type:'send',conversationId:id,text:value,attachments:prepared});
     } catch(error) {setBusy(false);setStatus('');setToast(error.message || 'Не удалось прочитать вложение.');}
@@ -119,7 +138,10 @@ function App() {
     if (desktop) {window.chrome.webview.postMessage({type:'copy_text',text});return;}
     try {await navigator.clipboard.writeText(text);setToast('Скопировано.');} catch {setToast('Не удалось скопировать текст.');}
   };
+  const openFile = path => desktopAction({type:'open_file',path});
+  const showChatMenu = (event,chat) => {event.preventDefault();event.stopPropagation();const rect=event.currentTarget.getBoundingClientRect();const x=Number.isFinite(event.clientX)?event.clientX:rect.left;const y=Number.isFinite(event.clientY)?event.clientY:rect.bottom;setContextMenu({id:chat.id,title:chat.title,x:Math.max(0,Math.min(x,window.innerWidth-190)),y:Math.max(0,Math.min(y,window.innerHeight-115))});};
   const openLink = (event,href) => {
+    if (href && (/^file:\/\/\//i.test(href) || (!/^[a-z][a-z0-9+.-]*:/i.test(href) && /\.[a-z0-9]{1,8}$/i.test(href)))) {event.preventDefault();try {openFile(/^file:/i.test(href)?href:decodeURIComponent(href));} catch {setToast('Недопустимый путь к файлу.');}return;}
     if (!href || !/^https?:\/\//i.test(href)) {event.preventDefault();return;}
     if (desktop) {event.preventDefault();window.chrome.webview.postMessage({type:'open_link',url:href});}
   };
@@ -130,19 +152,21 @@ function App() {
       <div className="brand-row"><button className="brand" onClick={newChat}><Mark small/><span>elisa</span><span className="brand-dot">.</span><span className="brand-version">VIORA 1.0</span></button><button className="icon-button sidebar-toggle" title="Свернуть панель" onClick={()=>setSidebar(false)}><PanelLeftClose size={18}/></button></div>
       <button className="new-chat" onClick={newChat}><SquarePen size={17}/><span>Новый чат</span><span className="shortcut">Ctrl K</span></button>
       <nav className="navigation"><button onClick={()=>{setModal('search');setSearch('')}}><Search size={17}/><span>Поиск</span></button><button className="nav-selected" onClick={newChat}><MessageSquare size={17}/><span>Чаты</span></button></nav>
-      <div className="side-divider"/><div className="history"><div className="side-heading">НЕДАВНИЕ <MoreHorizontal size={17}/></div><div className="history-group">{chats.length?<div className="history-label">Сохранённые</div>:<div className="history-label">Здесь появятся ваши чаты</div>}{chats.map(chat=><button className={'history-item '+(active===chat.id?'history-active':'')} key={chat.id} onClick={()=>openChat(chat.id)}>{chat.title}</button>)}</div></div>
+      <div className="side-divider"/><div className="history"><div className="side-heading">НЕДАВНИЕ <MoreHorizontal size={17}/></div><div className="history-group">{chats.length?<div className="history-label">Сохранённые</div>:<div className="history-label">Здесь появятся ваши чаты</div>}{chats.map(chat=><button className={'history-item '+(active===chat.id?'history-active':'')} key={chat.id} onContextMenu={event=>showChatMenu(event,chat)} onKeyDown={event=>{if(event.key==='F10'&&event.shiftKey)showChatMenu(event,chat)}} onClick={()=>openChat(chat.id)}>{chat.title}</button>)}</div></div>
       <div className="sidebar-bottom"><div className="upgrade"><div className="upgrade-icon"><ShieldAlert size={15}/></div><div><strong>{unrestricted?'Полный доступ к Windows':'Рабочие области'}</strong><span>{unrestricted?'Без ограничений папками':`${paths.length} папок · без подтверждений`}</span></div><button title="Настройки" onClick={()=>setModal('settings')}><ArrowUpRight size={15}/></button></div><button className="profile" onClick={()=>setModal('settings')}><span className="avatar">В</span><span className="profile-text"><strong>Ваше пространство</strong><small>Настройки OpenRouter</small></span><MoreHorizontal size={18}/></button></div>
     </aside>}
     <main className="main">
-      <header className="topbar"><div className="top-left">{!sidebar&&<button className="icon-button" onClick={()=>setSidebar(true)} title="Открыть панель"><PanelLeftOpen size={19}/></button>}<span>{active?'Чат':'Личное пространство'}</span>{active&&<><ChevronRight size={14}/><strong>{current?.title}</strong></>}</div><div className="top-right"><span className="connection"><span className={"connection-dot "+(configured?"connected":"")}/> {configured?'OpenRouter настроен':'Не подключено'}</span><button className="icon-button mobile-menu" onClick={()=>setSidebar(!sidebar)} title="Меню"><Menu size={19}/></button><button className="icon-button top-settings" title="Настройки" onClick={()=>setModal('settings')}><SlidersHorizontal size={17}/></button></div></header>
-      {active ? <section className="conversation"><div className="conversation-inner"><div className="conversation-title"><span className="tiny-star">✳</span><span>Личное пространство</span></div><h2>{current?.title}</h2>{(messages[active]||[]).map((message,i)=>message.role==='user'?<div className="message user-message" key={i}>{message.text}{message.attachments?.length>0&&<div className="message-files">{message.attachments.map((name,j)=><span key={j}><Paperclip size={13}/>{name}</span>)}</div>}</div>:(message.role==='tool_result'||message.role==='tool_start')?<ToolActivity key={message.toolId||i} message={message} onCopy={copyText}/>:<div className={'assistant-message '+(message.role==='error'?'error-message':'')} key={i}><Mark small/><div className="assistant-content"><strong>{message.role==='error'?'Ошибка':'Elisa'}</strong><Markdown text={message.text} onCopy={copyText} onOpen={openLink}/></div></div>)}{busy&&status&&<div className="agent-status"><span className="connection-dot"/>{status}</div>}<div ref={endRef}/></div><div className="conversation-composer"><Composer {...{draft,setDraft,submit,model,textarea,busy,attachments,setAttachments,addFiles,handlePaste,dragging}} settings={()=>setModal('settings')} cancel={()=>window.chrome.webview.postMessage({type:'cancel'})}/><div className="disclaimer">{unrestricted?'Полный доступ к Windows включён. Действия выполняются без подтверждений.':'Файловые действия выполняются без подтверждений в рабочих областях.'}</div></div></section> : <section className="home-view">
+      <header className="topbar"><div className="top-left">{!sidebar&&<button className="icon-button" onClick={()=>setSidebar(true)} title="Открыть панель"><PanelLeftOpen size={19}/></button>}<span>{active?'Чат':'Личное пространство'}</span>{active&&<><ChevronRight size={14}/><strong>{current?.title}</strong></>}</div><div className="top-right"><span className="connection"><span className={"connection-dot "+(configured?"connected":"")}/> {configured?'OpenRouter настроен':'Не подключено'}</span><button className="icon-button mobile-menu" onClick={()=>setSidebar(!sidebar)} title="Меню"><Menu size={19}/></button><button className="icon-button" title="Обзор и статистика" onClick={()=>setPanelOpen(open=>!open)}><BarChart3 size={17}/></button><button className="icon-button top-settings" title="Настройки" onClick={()=>setModal('settings')}><SlidersHorizontal size={17}/></button></div></header>
+      <div className="dashboard-body"><div className="chat-area">{active ? <section className="conversation"><div className="conversation-inner"><div className="conversation-title"><span className="tiny-star">✳</span><span>Личное пространство</span></div><h2>{current?.title}</h2>{(messages[active]||[]).map((message,i)=>message.role==='thinking_start'?<Thinking key={message.toolId||i} message={message}/>:message.role==='user'?<div className="message user-message" key={i}>{message.text}{message.attachments?.length>0&&<div className="message-files">{message.attachments.map((name,j)=><span key={j}><Paperclip size={13}/>{name}</span>)}</div>}</div>:(message.role==='tool_result'||message.role==='tool_start')?<ToolActivity key={message.toolId||i} message={message} onCopy={copyText}/>:<div className={'assistant-message '+(message.role==='error'?'error-message':'')} key={i}><Mark small/><div className="assistant-content"><strong>{message.role==='error'?'Ошибка':'Elisa'}</strong><Markdown text={message.text} onCopy={copyText} onOpen={openLink} onFile={openFile}/></div></div>)}{busy&&active===busyChat&&status&&<div className="agent-status"><span className="activity-spinner"/>{status}</div>}<div ref={endRef}/></div><div className="conversation-composer"><Composer {...{draft,setDraft,submit,model,textarea,busy,attachments,setAttachments,addFiles,handlePaste,dragging}} settings={()=>setModal('settings')} cancel={()=>window.chrome.webview.postMessage({type:'cancel'})}/><div className="disclaimer">{unrestricted?'Полный доступ к Windows включён. Действия выполняются без подтверждений.':'Файловые действия выполняются без подтверждений в рабочих областях.'}</div></div></section> : <section className="home-view">
         <div className="welcome"><div className="welcome-icon"><img src={logo} alt="Логотип Elisa"/></div><div className="greeting-overline">ELISA VIORA 1.0 · ВАШЕ ПРОСТРАНСТВО ДЛЯ ИДЕЙ</div><h1>Чем займёмся сегодня<span>?</span></h1><p>Большие идеи начинаются с простого вопроса.</p></div>
         <Composer {...{draft,setDraft,submit,model,textarea,busy,attachments,setAttachments,addFiles,handlePaste,dragging}} settings={()=>setModal('settings')} cancel={()=>window.chrome.webview.postMessage({type:'cancel'})}/>
         <div className="prompt-list">{prompts.map(({icon:Icon,label,text})=><button key={label} onClick={()=>{setDraft(text);textarea.current?.focus()}}><Icon size={15}/>{label}<ArrowUpRight size={13} className="prompt-arrow"/></button>)}</div>
-        <div className="recent"><div className="recent-header"><div><div className="section-eyebrow">ПРОДОЛЖИТЬ С ТОГО ЖЕ МЕСТА</div><h2>Недавние чаты</h2></div><button onClick={()=>setModal('search')}>Все чаты <ChevronRight size={15}/></button></div>{chats.length?<div className="recent-grid">{chats.slice(0,3).map(chat=><button className="recent-card" key={chat.id} onClick={()=>openChat(chat.id)}><div className="card-icon"><Clock3 size={17}/></div><strong>{chat.title}</strong><p>{chat.preview}</p><span>Сохранённые <ArrowUpRight size={14}/></span></button>)}</div>:<div className="empty-history">Начните новый диалог — он появится здесь.</div>}</div>
+        <div className="recent"><div className="recent-header"><div><div className="section-eyebrow">ПРОДОЛЖИТЬ С ТОГО ЖЕ МЕСТА</div><h2>Недавние чаты</h2></div><button onClick={()=>setModal('search')}>Все чаты <ChevronRight size={15}/></button></div>{chats.length?<div className="recent-grid">{chats.slice(0,3).map(chat=><button className="recent-card" key={chat.id} onContextMenu={event=>showChatMenu(event,chat)} onClick={()=>openChat(chat.id)}><div className="card-icon"><Clock3 size={17}/></div><strong>{chat.title}</strong><p>{chat.preview}</p><span>Сохранённые <ArrowUpRight size={14}/></span></button>)}</div>:<div className="empty-history">Начните новый диалог — он появится здесь.</div>}</div>
         <div className="home-footer"><span>Создано для вашего потока мыслей <span className="footer-star">✳</span></span><span>Работает с OpenRouter <span className="footer-dot">●</span></span></div>
-      </section>}
+      </section>}</div>{panelOpen&&<InsightsPanel usage={usage} storagePath={storagePath} busy={busy} onOpenStorage={()=>desktopAction({type:'open_storage'})} onAddStorage={()=>desktopAction({type:'add_storage_workspace'})}/>}</div>
     </main>
+    {contextMenu&&<><div className="context-dismiss" onClick={()=>setContextMenu(null)} onContextMenu={e=>{e.preventDefault();setContextMenu(null)}}/><div className="chat-context" style={{left:contextMenu.x,top:contextMenu.y}}><button disabled={busy} onClick={()=>{setRenameTarget(contextMenu.id);setRenameText(contextMenu.title);setContextMenu(null)}}><PenLine size={15}/> Переименовать</button><button disabled={busy} className="delete-chat" onClick={()=>{desktopAction({type:'delete_chat',id:contextMenu.id});setContextMenu(null)}}><Trash2 size={15}/> Удалить чат</button>{busy&&<span>Дождитесь завершения запроса</span>}</div></>}
+    {renameTarget&&<div className="modal-backdrop" onMouseDown={()=>setRenameTarget(null)}><form className="modal rename-modal" onMouseDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();if(renameText.trim())desktopAction({type:'rename_chat',id:renameTarget,title:renameText.trim()})}}><div className="modal-head"><div><span className="section-eyebrow">ВАШИ ДИАЛОГИ</span><h2>Переименовать чат</h2></div><button type="button" className="icon-button" onClick={()=>setRenameTarget(null)}><X size={18}/></button></div><label className="field-label" htmlFor="chat-title">Название</label><input id="chat-title" className="settings-input" value={renameText} maxLength={120} autoFocus onChange={e=>setRenameText(e.target.value)}/><button className="done-button" disabled={!renameText.trim()||busy}>Сохранить</button></form></div>}
     {modal && <div className="modal-backdrop" onMouseDown={()=>setModal(null)}><div className={'modal '+(modal==='search'?'search-modal':'')} onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><span className="section-eyebrow">{modal==='search'?'ВАШИ ДИАЛОГИ':'ВАШЕ ПРОСТРАНСТВО'}</span><h2>{modal==='search'?'Поиск по чатам':'Настройки'}</h2></div><button className="icon-button" onClick={()=>setModal(null)} aria-label="Закрыть"><X size={19}/></button></div>{modal==='search'?<><label className="search-field"><Search size={18}/><input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Найти чат..."/></label><div className="search-results">{filtered.length?filtered.map(c=><button key={c.id} onClick={()=>openChat(c.id)}><MessageSquare size={16}/><span>{c.title}<small>Сохранённые</small></span><ChevronRight size={16}/></button>):<p>Чаты не найдены</p>}</div></>:<div className="settings-content">
       <div className="settings-tabs"><button className={settingsTab==='workspaces'?'selected':''} onClick={()=>setSettingsTab('workspaces')}>Рабочие области</button><button className={settingsTab==='provider'?'selected':''} onClick={()=>setSettingsTab('provider')}>OpenRouter</button><button className={settingsTab==='system'?'selected':''} onClick={()=>setSettingsTab('system')}>Система</button></div>
       {settingsTab==='workspaces'?<>

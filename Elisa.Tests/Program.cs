@@ -34,6 +34,16 @@ try
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException) { }
     if (Directory.Exists(Path.Combine(root, "link"))) Reject(() => spaces.Execute("list_files", Args("link")), "symlink accepted");
     Assert(new Workspaces(Path.Combine(temp, "settings.json")).Settings.Paths.Count == 1, "settings not persisted");
+    Assert(FileAccess.Resolve("sample.txt", spaces, outside) == Path.Combine(root, "sample.txt"), "workspace file not resolved");
+    Assert(FileAccess.Resolve(new Uri(Path.Combine(root, "sample.txt")).AbsoluteUri, spaces, outside) == Path.Combine(root, "sample.txt"), "file URI not resolved");
+    File.WriteAllText(Path.Combine(outside, "outside.txt"), "outside");
+    Reject(() => FileAccess.Resolve(Path.Combine(outside, "outside.txt"), spaces, outside), "outside file opened in workspace mode");
+    Assert(FileAccess.CanOpenDirectly("cat.svg") && !FileAccess.CanOpenDirectly("script.bat"), "unsafe file policy failed");
+    spaces.SetUnrestricted(true);
+    Assert(FileAccess.Resolve("outside.txt", spaces, outside) == Path.Combine(outside, "outside.txt"), "desktop file not resolved");
+    var library = new LocalLibrary(Path.Combine(temp, "library")); library.Ensure();
+    Assert(Directory.Exists(Path.Combine(library.Root, "Projects")) && Directory.Exists(Path.Combine(library.Root, "Notes")) && Directory.Exists(Path.Combine(library.Root, "Exports")), "library folders missing");
+    spaces.SetUnrestricted(false);
 
     async Task CheckPowerShellAsync(bool enabled)
     {
@@ -112,6 +122,18 @@ try
     restored.Save();
     var afterRestart = new LocalStore(storePath);
     Assert(afterRestart.Data.Chats[0].Messages[^1].ToolStatus == "interrupted" && afterRestart.Data.Chats[0].Messages[^1].Command == "Get-Location" && afterRestart.Data.Chats[0].Messages[^1].ToolComment == "Просматриваю папку", "unfinished activity not restored");
+    Assert(restored.RecordUsage(JsonNode.Parse("""{"model":"vendor/a","usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}""")!, "fallback"), "usage not recorded");
+    Assert(restored.RecordUsage(JsonNode.Parse("""{"model":"vendor/a","usage":{"prompt_tokens":10,"completion_tokens":5}}""")!, "fallback"), "usage without total not recorded");
+    Assert(!restored.RecordUsage(JsonNode.Parse("""{"model":"vendor/b"}""")!, "fallback"), "missing usage counted");
+    restored.Save();
+    var usageReloaded = new LocalStore(storePath);
+    Assert(usageReloaded.Data.Usage["vendor/a"].TotalTokens == 135 && usageReloaded.Data.Usage["vendor/a"].Requests == 2, "usage not persisted correctly");
+    restored.RenameChat("persisted", "Новый заголовок");
+    Assert(new LocalStore(storePath).Data.Chats[0].Title == "Новый заголовок", "rename did not persist");
+    var tempChat = restored.FindOrCreate("to-delete", "delete", []); restored.Data.Histories[tempChat.Id] = new JsonArray(); restored.Save();
+    restored.DeleteChat("to-delete");
+    var deletedReload = new LocalStore(storePath);
+    Assert(deletedReload.Data.Chats.All(c=>c.Id!="to-delete") && !deletedReload.Data.Histories.ContainsKey("to-delete"), "delete did not remove chat and model history");
     var nextHandler = new FakeHandler(answerReply);
     using (var next = new Agent(_ => {}, spaces, new HttpClient(nextHandler), store: restored)) await next.RunAsync("persisted", "Продолжим");
     var history = JsonNode.Parse(nextHandler.Requests[0])!["messages"]!.AsArray();
@@ -133,6 +155,11 @@ try
     Assert(parts[2]!["image_url"]!["url"]!.GetValue<string>().StartsWith("data:image/png;base64,"), "image not attached");
     Assert(parts[3]!["file"]!["filename"]!.GetValue<string>() == "data.bin", "binary not attached");
     Assert(parts[4]!["file"]!["file_data"]!.GetValue<string>().StartsWith("data:application/pdf;base64,"), "pdf not attached");
+    const string usageReply = """{"model":"vendor/real-model","usage":{"prompt_tokens":33,"completion_tokens":7,"total_tokens":40},"choices":[{"message":{"role":"assistant","content":"OK"}}]}""";
+    var usageEvents = new List<string>();
+    using (var usageAgent = new Agent(e => usageEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(new FakeHandler(usageReply)), store: restored)) await usageAgent.RunAsync("usage-chat", "Hello");
+    Assert(restored.Data.Usage["vendor/real-model"].TotalTokens == 40 && usageEvents.Any(e=>e.Contains("usage_updated")), "response usage not captured");
+    Assert(usageEvents.Any(e=>e.Contains("thinking_start")) && usageEvents.Any(e=>e.Contains("thinking_finish")), "thinking timer events missing");
     var attachHandler = new FakeHandler(answerReply);
     using (var attaching = new Agent(_ => {}, spaces, new HttpClient(attachHandler), store: restored)) await attaching.RunAsync("file-chat", "", attachments);
     var payload = JsonNode.Parse(attachHandler.Requests[0])!;

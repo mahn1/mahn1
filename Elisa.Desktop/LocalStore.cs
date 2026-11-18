@@ -20,7 +20,15 @@ internal sealed class ChatItem
     public string? ToolName { get; set; }
     public string? ToolComment { get; set; }
     public string? ToolStatus { get; set; }
+    public long DurationMs { get; set; }
     public List<string> Attachments { get; set; } = [];
+}
+internal sealed class ModelUsage
+{
+    public long PromptTokens { get; set; }
+    public long CompletionTokens { get; set; }
+    public long TotalTokens { get; set; }
+    public long Requests { get; set; }
 }
 internal sealed class SavedState
 {
@@ -28,6 +36,7 @@ internal sealed class SavedState
     public string Model { get; set; } = "openrouter/free";
     public Dictionary<string, JsonArray> Histories { get; set; } = [];
     public List<ChatEntry> Chats { get; set; } = [];
+    public Dictionary<string, ModelUsage> Usage { get; set; } = [];
 }
 
 /// <summary>DPAPI CurrentUser encrypts the complete state, including API key and model context.</summary>
@@ -52,7 +61,7 @@ internal sealed class LocalStore
             foreach (var item in Data.Chats.SelectMany(c => c.Messages).Where(m => m.ToolStatus == "running"))
             {
                 item.ToolStatus = "interrupted";
-                item.Text = "Приложение было закрыто во время выполнения. Проверьте результат вручную.";
+                item.Text = item.Role == "thinking_start" ? "Ожидание ответа прервано." : "Приложение было закрыто во время выполнения. Проверьте результат вручную.";
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or JsonException)
@@ -74,6 +83,44 @@ internal sealed class LocalStore
         string tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try { File.WriteAllBytes(tmp, encrypted); File.Move(tmp, path, true); }
         finally { if (File.Exists(tmp)) File.Delete(tmp); }
+    }
+    public bool RecordUsage(JsonNode root, string fallbackModel)
+    {
+        if (root["usage"] is not JsonObject usage) return false;
+        static long? Read(JsonNode? node)
+        {
+            try { long? n = node?.GetValue<long>(); return n is >= 0 and <= 1_000_000_000 ? n : null; }
+            catch (Exception ex) when (ex is InvalidOperationException or FormatException or OverflowException) { return null; }
+        }
+        long? prompt = Read(usage["prompt_tokens"]), completion = Read(usage["completion_tokens"]), total = Read(usage["total_tokens"]);
+        if (prompt is null && completion is null && total is null) return false;
+        if (total is null && (prompt is null || completion is null)) return false;
+        long totalValue = total ?? prompt!.Value + completion!.Value;
+        string model = root["model"] is JsonValue value && value.TryGetValue<string>(out var actual) && !string.IsNullOrWhiteSpace(actual) ? actual : fallbackModel;
+        if (model.Length > 200) model = model[..200];
+        if (!Data.Usage.TryGetValue(model, out var record)) Data.Usage[model] = record = new();
+        record.PromptTokens += prompt ?? 0; record.CompletionTokens += completion ?? 0;
+        record.TotalTokens += totalValue; record.Requests++;
+        return true;
+    }
+
+    public void RenameChat(string id, string title)
+    {
+        var chat = Data.Chats.Find(c => c.Id == id) ?? throw new ArgumentException("Чат не найден.");
+        title = title.Trim();
+        if (title.Length is < 1 or > 120 || title.Any(char.IsControl)) throw new ArgumentException("Название должно содержать от 1 до 120 символов.");
+        string old = chat.Title; chat.Title = title;
+        try { Save(); } catch { chat.Title = old; throw; }
+    }
+    public void DeleteChat(string id)
+    {
+        int index = Data.Chats.FindIndex(c => c.Id == id);
+        if (index < 0) throw new ArgumentException("Чат не найден.");
+        var chat = Data.Chats[index];
+        Data.Histories.TryGetValue(id, out var history);
+        Data.Chats.RemoveAt(index); Data.Histories.Remove(id);
+        try { Save(); }
+        catch { Data.Chats.Insert(index, chat); if (history is not null) Data.Histories[id] = history; throw; }
     }
     public ChatEntry FindOrCreate(string id, string text, IReadOnlyList<Attachment> attachments)
     {

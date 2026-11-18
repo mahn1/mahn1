@@ -74,7 +74,7 @@ internal sealed class Workspaces
         }
     }
 
-    private string Resolve(int index, string relative)
+    internal string Resolve(int index, string relative)
     {
         if (index < 1 || index > Settings.Paths.Count) throw new ArgumentException("Неизвестная рабочая область.");
         if (Path.IsPathRooted(relative) || relative.Contains(':')) throw new UnauthorizedAccessException("Используйте относительный путь внутри рабочей области.");
