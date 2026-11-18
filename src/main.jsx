@@ -1,10 +1,11 @@
 import React, {useState, useRef, useEffect} from 'react';
 import {createRoot} from 'react-dom/client';
-import {PanelLeftClose, PanelLeftOpen, SquarePen, Search, MessageSquare, ChevronRight, MoreHorizontal, ArrowUp, SlidersHorizontal, Code2, Lightbulb, PenLine, BookOpen, Sparkles, ArrowUpRight, X, Globe2, Clock3, Menu, Square, ShieldAlert, TerminalSquare, FolderPlus, Trash2, FolderClosed, Paperclip, FileText, Copy, ChevronDown, CheckCircle2, CircleAlert} from 'lucide-react';
+import {PanelLeftClose, PanelLeftOpen, SquarePen, Search, MessageSquare, ChevronRight, MoreHorizontal, ArrowUp, SlidersHorizontal, Code2, Lightbulb, PenLine, BookOpen, Sparkles, ArrowUpRight, X, Globe2, Clock3, Menu, Square, ShieldAlert, TerminalSquare, FolderPlus, Trash2, FolderClosed, Paperclip, FileText} from 'lucide-react';
 import './styles.css';
 import logo from '../assets/elisa-logo.svg';
 import Markdown from './Markdown.jsx';
 import {updateToolMessages} from './chatEvents.js';
+import ToolActivity from './ToolActivity.jsx';
 
 const prompts = [
   {icon: Code2, label: 'Написать код', text: 'Помоги написать код для моего проекта'},
@@ -159,18 +160,6 @@ function App() {
     {dragging&&<div className="drop-overlay"><Paperclip size={28}/><strong>Отпустите файлы, чтобы прикрепить</strong><span>До 8 файлов · до 12 МБ всего</span></div>}
     {toast&&<div className="toast">{toast}</div>}
   </div>
-}
-const toolTitles = {run_powershell:'PowerShell', list_workspaces:'Рабочие области', list_files:'Список файлов', read_file:'Чтение файла', write_file:'Запись файла', create_directory:'Создание папки'};
-function ToolActivity({message,onCopy}) {
-  const [expanded,setExpanded] = useState(true);
-  const state = message.toolStatus || 'done';
-  const label = state==='running'?'Выполняется':state==='error'?'Ошибка':state==='interrupted'?'Остановлено':'Завершено';
-  return <section className="activity-card"><button className="activity-header" onClick={()=>setExpanded(!expanded)} aria-expanded={expanded}>
-    <span className="activity-icon"><TerminalSquare size={16}/></span><span className="activity-title">{toolTitles[message.toolName] || message.toolName || 'Действие агента'}<small>Действие агента</small></span>
-    <span className={'activity-status status-'+state}>{state==='running'?<span className="activity-spinner"/>:state==='done'?<CheckCircle2 size={13}/>:<CircleAlert size={13}/>} {label}</span><ChevronDown size={16} className={expanded?'activity-chevron open':'activity-chevron'}/>
-  </button>{expanded&&<div className="activity-body">{message.command&&<><div className="activity-label"><span>{message.toolName==='run_powershell'?'КОМАНДА':'ПАРАМЕТРЫ'}</span><button onClick={()=>onCopy(message.command)} aria-label="Копировать команду"><Copy size={13}/> Копировать</button></div><pre>{message.command}</pre></>}
-    {state==='running'?<div className="activity-pending">Ожидание результата…</div>:<><div className="activity-label"><span>РЕЗУЛЬТАТ</span>{message.text&&<button onClick={()=>onCopy(message.text)} aria-label="Копировать результат"><Copy size={13}/> Копировать</button>}</div><pre className="activity-output">{message.text || 'Нет вывода.'}</pre></>}
-  </div>}</section>;
 }
 function AttachmentChip({file,onRemove}) {
   const [preview,setPreview]=useState('');

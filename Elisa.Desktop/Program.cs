@@ -132,7 +132,7 @@ internal sealed class ElisaWindow : Form
     {
         Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(store.Data.ApiKey), model = store.Data.Model,
             chats = store.Data.Chats.Select(c => new { id = c.Id, title = c.Title, preview = c.Preview,
-                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, toolId = m.ToolId, toolName = m.ToolName, toolStatus = m.ToolStatus }) }) });
+                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, toolId = m.ToolId, toolName = m.ToolName, toolComment = m.ToolComment, toolStatus = m.ToolStatus }) }) });
         if (store.LoadError is not null) Send(new { type = "persistence_warning", text = store.LoadError });
     }
 
@@ -155,7 +155,7 @@ internal sealed class ElisaWindow : Form
                 }
                 else if (type == "tool_start")
                     chat.Messages.Add(new ChatItem { Role = type, ToolId = root.GetProperty("toolId").GetString(),
-                        ToolName = root.GetProperty("toolName").GetString(), Command = root.GetProperty("command").GetString(), ToolStatus = "running" });
+                        ToolName = root.GetProperty("toolName").GetString(), ToolComment = root.GetProperty("toolComment").GetString(), Command = root.GetProperty("command").GetString(), ToolStatus = "running" });
                 else
                     chat.Messages.Add(new ChatItem { Role = type, Text = root.GetProperty("text").GetString() ?? "",
                         Command = root.TryGetProperty("command", out var command) ? command.GetString() : null });

@@ -49,16 +49,27 @@ try
         Assert(events.Any(e => e.Contains("tool_start") && e.Contains("Get-Location")) && events.Any(e => e.Contains("tool_finish")) && events.Any(e => e.Contains("answer")), "missing live events");
         var begin = events.FindIndex(e => e.Contains("tool_start"));
         var end = events.FindIndex(e => e.Contains("tool_finish"));
+        Assert(JsonNode.Parse(events[begin])!["toolComment"]!.GetValue<string>() == "Просматриваю расположение и содержимое", "fallback comment missing");
         Assert(begin >= 0 && end > begin && events[end].Contains(enabled ? "done" : "error"), "wrong event order or status");
         Assert(handler.Requests.Count == 2 && !handler.Requests.Any(r => r.Contains("secret")), "requests or key");
         var first = JsonNode.Parse(handler.Requests[0])!;
         Assert(first["tools"]!.AsArray().Any(t => t?["function"]?["name"]?.GetValue<string>() == "run_powershell") == enabled, "wrong tool exposure");
+        Assert(first["tools"]![0]!["function"]!["parameters"]!["properties"]!["comment"] is not null, "comment missing from tool schema");
         var result = JsonNode.Parse(handler.Requests[1])!["messages"]!.AsArray().Last()!;
         Assert(result["role"]!.GetValue<string>() == "tool" && result["tool_call_id"]!.GetValue<string>() == "call-1", "missing tool result");
         Assert(result["content"]!.GetValue<string>().Contains(enabled ? "успех" : "выключен"), "wrong result");
     }
     await CheckPowerShellAsync(false);
     await CheckPowerShellAsync(true);
+    const string commentedReply = """{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call-2","type":"function","function":{"name":"run_powershell","arguments":"{\"command\":\"Get-Location\",\"comment\":\"Checking workspace\"}"}}]}}]}""";
+    var commentEvents = new List<string>();
+    using (var commenting = new Agent(e => commentEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(new FakeHandler(commentedReply, answerReply)), (command, token) => Task.FromResult("ok")))
+    {
+        commenting.Configure("secret", "test/model");
+        await commenting.RunAsync("comment", "test");
+        var startEvent = commentEvents.Select(e => JsonNode.Parse(e)).First(n => n?["type"]?.GetValue<string>() == "tool_start");
+        Assert(startEvent!["toolComment"]!.GetValue<string>() == "Checking workspace", "custom comment not forwarded");
+    }
     var failureEvents = new List<string>();
     using (var failing = new Agent(e => failureEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(new FakeHandler(toolReply, answerReply)),
         (command, token) => Task.FromResult("Код выхода: 1\nstdout:\n\nstderr:\nfail")))
@@ -97,14 +108,15 @@ try
     var restored = new LocalStore(storePath);
     Assert(restored.Data.ApiKey == "sk-secret-test" && restored.Data.Model == "saved/model", "credentials not restored");
     Assert(restored.Data.Chats.Count == 1 && restored.Data.Chats[0].Messages[0].Text == "Привет", "chat not restored");
-    restored.Data.Chats[0].Messages.Add(new ChatItem { Role = "tool_start", ToolId = "abc", ToolName = "run_powershell", Command = "Get-Location", ToolStatus = "running" });
+    restored.Data.Chats[0].Messages.Add(new ChatItem { Role = "tool_start", ToolId = "abc", ToolName = "run_powershell", ToolComment = "Просматриваю папку", Command = "Get-Location", ToolStatus = "running" });
     restored.Save();
     var afterRestart = new LocalStore(storePath);
-    Assert(afterRestart.Data.Chats[0].Messages[^1].ToolStatus == "interrupted" && afterRestart.Data.Chats[0].Messages[^1].Command == "Get-Location", "unfinished activity not restored");
+    Assert(afterRestart.Data.Chats[0].Messages[^1].ToolStatus == "interrupted" && afterRestart.Data.Chats[0].Messages[^1].Command == "Get-Location" && afterRestart.Data.Chats[0].Messages[^1].ToolComment == "Просматриваю папку", "unfinished activity not restored");
     var nextHandler = new FakeHandler(answerReply);
     using (var next = new Agent(_ => {}, spaces, new HttpClient(nextHandler), store: restored)) await next.RunAsync("persisted", "Продолжим");
     var history = JsonNode.Parse(nextHandler.Requests[0])!["messages"]!.AsArray();
     Assert(history.Count == 4 && history[1]!["content"]!.GetValue<string>() == "Привет", "context not restored");
+    Assert(history[0]!["content"]!.GetValue<string>().Contains("оркестратор"), "orchestrator instructions missing from saved chat");
     File.WriteAllText(Path.Combine(temp, "broken.dat"), "broken state");
     var broken = new LocalStore(Path.Combine(temp, "broken.dat"));
     Assert(broken.LoadError is not null, "corrupt state not reported");

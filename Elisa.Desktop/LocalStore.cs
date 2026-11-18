@@ -18,6 +18,7 @@ internal sealed class ChatItem
     public string? Command { get; set; }
     public string? ToolId { get; set; }
     public string? ToolName { get; set; }
+    public string? ToolComment { get; set; }
     public string? ToolStatus { get; set; }
     public List<string> Attachments { get; set; } = [];
 }

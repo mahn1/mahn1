@@ -22,8 +22,11 @@ internal sealed class Agent : IDisposable
     private const int MaxToolCalls = 12;
     private const int MaxOutput = 24000;
     private const string SystemPrompt = """
-        Ты Elisa, помощник пользователя на Windows. Отвечай на языке пользователя.
-        Используй доступные инструменты для работы с файлами или Windows. Действия выполняются без подтверждений.
+        Ты Elisa Viora, ИИ-оркестратор задач и доступных инструментов. Отвечай на языке пользователя.
+        Уточняй цель при необходимости, разбивай сложные задачи на шаги, выбирай и координируй инструменты,
+        проверяй результаты, исправляй ошибки и объясняй, что сделано. Не выдумывай инструменты и результаты.
+        В каждом вызове инструмента по возможности передавай comment: короткое описание конкретного шага
+        на языке пользователя, например «Проверяю размер voice.mp3». Действия выполняются без подтверждений.
         В режиме рабочих областей доступен только набор файловых инструментов в выбранных пользователем папках.
         В полном режиме PowerShell не ограничен рабочими областями и запускается с правами текущего пользователя.
         Не утверждай, что действие выполнено, пока не увидишь результат инструмента.
@@ -37,11 +40,44 @@ internal sealed class Agent : IDisposable
 
     public void EnsureIdle() { if (active is not null) throw new InvalidOperationException("Дождитесь завершения запроса."); }
 
-    private static JsonObject Tool(string name, string description, JsonObject properties, params string[] required) => new() {
-        ["type"] = "function", ["function"] = new JsonObject { ["name"] = name, ["description"] = description,
-            ["parameters"] = new JsonObject { ["type"] = "object", ["properties"] = properties,
-                ["required"] = new JsonArray(required.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()), ["additionalProperties"] = false } }
-    };
+    private static JsonObject Tool(string name, string description, JsonObject properties, params string[] required)
+    {
+        properties["comment"] = Field("string", "Краткое описание конкретного действия для пользователя, например: Проверяю размер voice.mp3");
+        return new JsonObject {
+            ["type"] = "function", ["function"] = new JsonObject { ["name"] = name, ["description"] = description,
+                ["parameters"] = new JsonObject { ["type"] = "object", ["properties"] = properties,
+                    ["required"] = new JsonArray(required.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()), ["additionalProperties"] = false } }
+        };
+    }
+
+    private static string DescribeTool(string? name, JsonNode? args, string command)
+    {
+        string? comment = null;
+        if (args is JsonObject obj && obj["comment"] is JsonValue value) value.TryGetValue(out comment);
+        if (!string.IsNullOrWhiteSpace(comment))
+        {
+            string normalized = string.Join(" ", comment.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            if (normalized.Length > 120) normalized = normalized[..120].TrimEnd() + "…";
+            return normalized;
+        }
+        if (name == "run_powershell")
+        {
+            if (command.Contains("Get-ChildItem", StringComparison.OrdinalIgnoreCase) || command.Contains("Get-Location", StringComparison.OrdinalIgnoreCase)) return "Просматриваю расположение и содержимое";
+            if (command.Contains("Get-Item", StringComparison.OrdinalIgnoreCase)) return "Проверяю сведения о файле";
+            if (command.Contains("Get-Content", StringComparison.OrdinalIgnoreCase)) return "Читаю содержимое файла";
+            if (command.Contains("Remove-Item", StringComparison.OrdinalIgnoreCase)) return "Удаляю указанные элементы";
+            if (command.Contains("Set-Content", StringComparison.OrdinalIgnoreCase)) return "Изменяю содержимое файла";
+            return "Выполняю команду PowerShell";
+        }
+        return name switch {
+            "list_workspaces" => "Проверяю доступные рабочие области",
+            "list_files" => "Просматриваю файлы и папки",
+            "read_file" => "Читаю содержимое файла",
+            "write_file" => "Записываю изменения в файл",
+            "create_directory" => "Создаю папку",
+            _ => "Выполняю запрос к инструменту"
+        };
+    }
     private static JsonObject Field(string type, string description) => new() { ["type"] = type, ["description"] = description };
     private JsonArray AvailableTools()
     {
@@ -92,6 +128,9 @@ internal sealed class Agent : IDisposable
         var history = store.Data.Histories.TryGetValue(conversationId, out var saved)
             ? (JsonArray)saved.DeepClone()
             : new JsonArray(new JsonObject { ["role"] = "system", ["content"] = SystemPrompt });
+        // Existing conversations must use the latest orchestrator instructions as well.
+        if (history.Count > 0 && history[0]?["role"]?.GetValue<string>() == "system")
+            history[0] = new JsonObject { ["role"] = "system", ["content"] = SystemPrompt };
         history.Add(new JsonObject { ["role"] = "user", ["content"] = Attachments.BuildContent(text, attachments) });
         int calls = 0;
         try
@@ -155,7 +194,8 @@ internal sealed class Agent : IDisposable
                         else if (parsed is not null) command = parsed.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
                     }
                     catch (Exception ex) when (ex is JsonException or InvalidOperationException) { /* Show raw arguments if invalid. */ }
-                    send(new { type = "tool_start", conversationId, toolId, toolName = name ?? "unknown", command });
+                    string toolComment = DescribeTool(name, parsed, command);
+                    send(new { type = "tool_start", conversationId, toolId, toolName = name ?? "unknown", toolComment, command });
                     // Let WebView render the command before running even a synchronous file operation.
                     await Task.Yield();
                     bool failed = false;
