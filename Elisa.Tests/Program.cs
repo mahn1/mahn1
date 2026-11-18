@@ -34,14 +34,14 @@ try
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException) { }
     if (Directory.Exists(Path.Combine(root, "link"))) Reject(() => spaces.Execute("list_files", Args("link")), "symlink accepted");
     Assert(new Workspaces(Path.Combine(temp, "settings.json")).Settings.Paths.Count == 1, "settings not persisted");
-    Assert(FileAccess.Resolve("sample.txt", spaces, outside) == Path.Combine(root, "sample.txt"), "workspace file not resolved");
-    Assert(FileAccess.Resolve(new Uri(Path.Combine(root, "sample.txt")).AbsoluteUri, spaces, outside) == Path.Combine(root, "sample.txt"), "file URI not resolved");
+    Assert(ChatFileAccess.Resolve("sample.txt", spaces, outside) == Path.Combine(root, "sample.txt"), "workspace file not resolved");
+    Assert(ChatFileAccess.Resolve(new Uri(Path.Combine(root, "sample.txt")).AbsoluteUri, spaces, outside) == Path.Combine(root, "sample.txt"), "file URI not resolved");
     File.WriteAllText(Path.Combine(outside, "outside.txt"), "outside");
-    Reject(() => FileAccess.Resolve(Path.Combine(outside, "outside.txt"), spaces, outside), "outside file opened in workspace mode");
-    Assert(FileAccess.CanOpenDirectly("cat.svg") && !FileAccess.CanOpenDirectly("script.bat"), "unsafe file policy failed");
+    Reject(() => ChatFileAccess.Resolve(Path.Combine(outside, "outside.txt"), spaces, outside), "outside file opened in workspace mode");
+    Assert(ChatFileAccess.CanOpenDirectly("cat.svg") && !ChatFileAccess.CanOpenDirectly("script.bat"), "unsafe file policy failed");
     spaces.SetUnrestricted(true);
-    Reject(() => FileAccess.Resolve("sample.txt:stream", spaces, outside), "file ADS accepted");
-    Assert(FileAccess.Resolve("outside.txt", spaces, outside) == Path.Combine(outside, "outside.txt"), "desktop file not resolved");
+    Reject(() => ChatFileAccess.Resolve("sample.txt:stream", spaces, outside), "file ADS accepted");
+    Assert(ChatFileAccess.Resolve("outside.txt", spaces, outside) == Path.Combine(outside, "outside.txt"), "desktop file not resolved");
     var library = new LocalLibrary(Path.Combine(temp, "library")); library.Ensure();
     Assert(Directory.Exists(Path.Combine(library.Root, "Projects")) && Directory.Exists(Path.Combine(library.Root, "Notes")) && Directory.Exists(Path.Combine(library.Root, "Exports")), "library folders missing");
     spaces.SetUnrestricted(false);

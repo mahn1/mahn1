@@ -105,8 +105,8 @@ internal sealed class ElisaWindow : Form
             }
             else if (type == "open_file")
             {
-                string file = FileAccess.Resolve(root.GetProperty("path").GetString() ?? "", workspaces, Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
-                if (FileAccess.CanOpenDirectly(file)) Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+                string file = ChatFileAccess.Resolve(root.GetProperty("path").GetString() ?? "", workspaces, Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+                if (ChatFileAccess.CanOpenDirectly(file)) Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
                 else
                 {
                     Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true, ArgumentList = { "/select," + file } });

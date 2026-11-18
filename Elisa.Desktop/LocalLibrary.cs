@@ -11,7 +11,7 @@ internal sealed class LocalLibrary
     }
 }
 
-internal static class FileAccess
+internal static class ChatFileAccess
 {
     private static readonly HashSet<string> DirectExtensions = new(StringComparer.OrdinalIgnoreCase) {
         ".txt", ".md", ".csv", ".json", ".xml", ".log", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".mp3", ".wav", ".flac", ".ogg", ".mp4", ".webm", ".docx", ".xlsx", ".pptx"
