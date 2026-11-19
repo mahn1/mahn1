@@ -1,0 +1,293 @@
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
+using System.Text.Json;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+namespace Elisa.Desktop;
+
+internal static class Program
+{
+    [STAThread]
+    private static void Main()
+    {
+        ApplicationConfiguration.Initialize();
+        Application.Run(new ElisaWindow());
+    }
+}
+
+internal sealed class ElisaWindow : Form
+{
+    private readonly WebView2 browser = new() { Dock = DockStyle.Fill };
+    private readonly Agent agent;
+    private readonly Workspaces workspaces = new();
+    private readonly LocalStore store = new();
+    private readonly LocalLibrary library = new();
+
+    public ElisaWindow()
+    {
+        Text = "Elisa Viora 1.0";
+        MinimumSize = new Size(800, 600);
+        Size = new Size(1400, 900);
+        StartPosition = FormStartPosition.CenterScreen;
+        BackColor = Color.FromArgb(32, 32, 32);
+        Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Controls.Add(browser);
+        agent = new Agent(SendAgentEvent, workspaces, store: store);
+        FormClosed += (_, _) => agent.Dispose();
+        Shown += async (_, _) => await InitializeBrowserAsync();
+    }
+
+    private static bool IsLocal(string source) => Uri.TryCreate(source, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttps && uri.Host == "elisa.local" && uri.IsDefaultPort;
+
+    private async Task InitializeBrowserAsync()
+    {
+        try
+        {
+            string content = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+            if (!File.Exists(Path.Combine(content, "index.html")))
+                throw new FileNotFoundException("Не найдены файлы интерфейса. Запустите приложение из папки, созданной build.bat.");
+            string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Elisa", "WebView2");
+            var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: data);
+            await browser.EnsureCoreWebView2Async(environment);
+            browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            browser.CoreWebView2.NavigationStarting += (_, e) => { if (!IsLocal(e.Uri)) e.Cancel = true; };
+            browser.CoreWebView2.NewWindowRequested += (_, e) => e.Handled = true;
+            browser.CoreWebView2.WebMessageReceived += OnWebMessage;
+            browser.CoreWebView2.SetVirtualHostNameToFolderMapping("elisa.local", content, CoreWebView2HostResourceAccessKind.DenyCors);
+            browser.CoreWebView2.Navigate("https://elisa.local/index.html");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Не удалось запустить Elisa. Проверьте, что установлен Microsoft Edge WebView2 Runtime.\n\n" + ex.Message,
+                "Elisa", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            Close();
+        }
+    }
+
+    private void Send(object message)
+    {
+        if (!IsDisposed && browser.CoreWebView2 is not null)
+            browser.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message));
+    }
+
+    private async void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        if (!IsLocal(e.Source)) return;
+        string conversationId = "";
+        try
+        {
+            using var document = JsonDocument.Parse(e.WebMessageAsJson);
+            var root = document.RootElement;
+            string type = root.GetProperty("type").GetString() ?? "";
+            if (type == "get_settings") { SendSettings(); SendState(); try { library.Ensure(); Send(new { type = "storage_ready", path = library.Root }); } catch (Exception) { Send(new { type = "persistence_warning", text = "Не удалось создать локальное хранилище." }); } }
+            else if (type == "rename_chat")
+            {
+                agent.EnsureIdle(); string id = root.GetProperty("id").GetString() ?? "";
+                store.RenameChat(id, root.GetProperty("title").GetString() ?? "");
+                Send(new { type = "chat_renamed", id, title = store.Data.Chats.Find(c => c.Id == id)!.Title });
+            }
+            else if (type == "delete_chat")
+            {
+                agent.EnsureIdle(); string id = root.GetProperty("id").GetString() ?? "";
+                store.DeleteChat(id); Send(new { type = "chat_deleted", id });
+            }
+            else if (type == "open_storage")
+            {
+                library.Ensure(); Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true, ArgumentList = { library.Root } });
+            }
+            else if (type == "add_storage_workspace")
+            {
+                agent.EnsureIdle(); library.Ensure(); workspaces.Add(library.Root); SendSettings();
+                Send(new { type = "storage_added" });
+            }
+            else if (type == "preview_html")
+            {
+                using var picker = new OpenFileDialog { Title = "Выберите HTML для предпросмотра", Filter = "HTML (*.html;*.htm)|*.html;*.htm", CheckFileExists = true };
+                if (picker.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (MessageBox.Show("HTML и скрипты получат доступ к файлам выбранной папки через виртуальный веб-адрес и могут обращаться в сеть. Открывайте только доверенные сайты. Продолжить?", "Предпросмотр HTML", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                        new PreviewWindow(picker.FileName).Show(this);
+                }
+            }
+            else if (type == "diagnose_model")
+            {
+                try { var route = ProviderSettings.Resolve(store.Data); var results = await agent.DiagnoseAsync(CancellationToken.None); Send(new { type = "model_diagnostics", text = route.Label + " · " + route.Model + "\n" + string.Join("\n", results) }); }
+                catch (Exception ex) { Send(new { type = "model_diagnostics", text = "Проверка не выполнена: " + ex.Message }); }
+            }
+            else if (type == "open_file")
+            {
+                string file = ChatFileAccess.Resolve(root.GetProperty("path").GetString() ?? "", workspaces, Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+                if (ChatFileAccess.CanOpenDirectly(file)) Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+                else
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true, ArgumentList = { "/select," + file } });
+                    Send(new { type = "file_revealed" });
+                }
+            }
+            else if (type == "github_login")
+            {
+                // The user completes the OAuth device flow in their own terminal/browser. No tokens pass through chat.
+                var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = true };
+                start.ArgumentList.Add("/k");
+                start.ArgumentList.Add("gh auth login --hostname github.com --web --git-protocol https --scopes repo,workflow,delete_repo,admin:org,admin:public_key,admin:repo_hook,admin:org_hook,gist,notifications,user,project,admin:gpg_key,admin:ssh_signing_key,write:packages,read:packages,delete:packages,codespace,read:audit_log");
+                Process.Start(start);
+                Send(new { type = "github_login_started" });
+            }
+            else if (type == "github_status")
+            {
+                try { string status = await GitHubCli.StatusAsync(CancellationToken.None); Send(new { type = "github_status", text = status }); }
+                catch (Exception) { Send(new { type = "github_status", text = "GitHub CLI не найден или не запустился. Установите gh, перезапустите Elisa и войдите в GitHub." }); }
+            }
+            else if (type == "memory_add")
+            {
+                agent.EnsureIdle(); store.AddMemory(root.GetProperty("text").GetString() ?? ""); Send(new { type = "memory_updated", memories = store.Data.Memories });
+            }
+            else if (type == "memory_remove")
+            {
+                agent.EnsureIdle(); store.RemoveMemory(root.GetProperty("id").GetString() ?? ""); Send(new { type = "memory_updated", memories = store.Data.Memories });
+            }
+            else if (type == "set_budget")
+            {
+                agent.EnsureIdle(); ProviderBudget.SetCaps(store, root.GetProperty("provider").GetString() ?? "", root.GetProperty("requests").GetInt64(), root.GetProperty("tokens").GetInt64());
+                Send(new { type = "budget_updated", caps = store.Data.ProviderCaps, daily = store.Data.DailyUsage });
+            }
+            else if (type == "openrouter_quota")
+            {
+                try { var quota = await agent.CheckOpenRouterQuotaAsync(CancellationToken.None); Send(new { type = "openrouter_quota", quota }); }
+                catch (Exception ex) { Send(new { type = "openrouter_quota_error", text = ex.Message }); }
+            }
+            else if (type == "add_workspace")
+            {
+                agent.EnsureIdle();
+                using var picker = new FolderBrowserDialog { Description = "Выберите рабочую область Elisa", UseDescriptionForTitle = true };
+                if (picker.ShowDialog(this) == DialogResult.OK) { workspaces.Add(picker.SelectedPath); SendSettings(); }
+            }
+            else if (type == "remove_workspace") { agent.EnsureIdle(); workspaces.Remove(root.GetProperty("path").GetString() ?? ""); SendSettings(); }
+            else if (type == "set_unrestricted") { agent.EnsureIdle(); workspaces.SetUnrestricted(root.GetProperty("enabled").GetBoolean()); SendSettings(); }
+            else if (type == "add_to_path") { agent.EnsureIdle(); AddToPath(); }
+            else if (type == "configure")
+            {
+                agent.Configure(root.GetProperty("key").GetString() ?? "", root.GetProperty("model").GetString() ?? ""); SendState();
+            }
+            else if (type == "configure_providers")
+            {
+                var routes = root.GetProperty("routes").Deserialize<Dictionary<string, AgentRoute>>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+                agent.ConfigureProviders(root.GetProperty("provider").GetString() ?? "", root.GetProperty("openRouterKey").GetString() ?? "", root.GetProperty("openRouterModel").GetString() ?? "", root.GetProperty("nvidiaKey").GetString() ?? "", root.GetProperty("nvidiaModel").GetString() ?? "", routes, root.GetProperty("arenaKey").GetString() ?? "", root.GetProperty("arenaModel").GetString() ?? "");
+                SendState();
+            }
+            else if (type == "cancel") agent.Cancel();
+            else if (type == "copy_text")
+            {
+                string value = root.GetProperty("text").GetString() ?? "";
+                if (value.Length > 1000000) throw new ArgumentException("Текст слишком большой для копирования.");
+                if (!string.IsNullOrEmpty(value)) Clipboard.SetText(value);
+                Send(new { type = "copied" });
+            }
+            else if (type == "open_link")
+            {
+                string url = root.GetProperty("url").GetString() ?? "";
+                if (url.Length > 4096 || !Uri.TryCreate(url, UriKind.Absolute, out var target) ||
+                    (target.Scheme != Uri.UriSchemeHttp && target.Scheme != Uri.UriSchemeHttps))
+                    throw new ArgumentException("Разрешены только ссылки HTTP и HTTPS.");
+                Process.Start(new ProcessStartInfo(target.AbsoluteUri) { UseShellExecute = true });
+            }
+            else if (type == "send")
+            {
+                conversationId = root.GetProperty("conversationId").GetString() ?? "";
+                agent.EnsureIdle();
+                _ = ProviderSettings.Resolve(store.Data);
+                string text = root.GetProperty("text").GetString() ?? "";
+                var files = Attachments.Parse(root);
+                if (conversationId.Length > 100 || string.IsNullOrWhiteSpace(conversationId) || text.Length > 50000 || (string.IsNullOrWhiteSpace(text) && files.Count == 0))
+                    throw new ArgumentException("Недопустимое сообщение.");
+                var chat = store.FindOrCreate(conversationId, text, files);
+                chat.Messages.Add(new ChatItem { Role = "user", Text = text, Attachments = files.Select(f => f.Name).ToList(), Images = files.Select(f => ChatImages.FromBytes(f.Name, f.Bytes)).OfType<ChatImage>().ToList() });
+                store.Save();
+                await agent.RunAsync(conversationId, text, files);
+            }
+        }
+        catch (OperationCanceledException) { SendAgentEvent(new { type = "error", conversationId, text = "Запрос остановлен. Выполненные изменения не отменяются." }); }
+        catch (Exception ex) { SendAgentEvent(new { type = "error", conversationId, text = ex.Message }); }
+    }
+
+    private void SendState()
+    {
+        Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(ProviderSettings.KeyFor(store.Data, store.Data.SelectedProvider)),
+            provider = store.Data.SelectedProvider, model = ProviderSettings.ModelFor(store.Data, store.Data.SelectedProvider),
+            openRouterModel = store.Data.Model, nvidiaModel = store.Data.NvidiaModel, arenaModel = store.Data.ArenaModel, arenaConfigured = !string.IsNullOrEmpty(store.Data.ArenaApiKey), openRouterConfigured = !string.IsNullOrEmpty(store.Data.ApiKey), nvidiaConfigured = !string.IsNullOrEmpty(store.Data.NvidiaApiKey), routes = store.Data.AgentRoutes,
+            usage = store.Data.Usage, memories = store.Data.Memories, caps = store.Data.ProviderCaps, daily = store.Data.DailyUsage,
+            chats = store.Data.Chats.Select(c => new { id = c.Id, title = c.Title, preview = c.Preview,
+                messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, images = m.Images, toolId = m.ToolId, toolName = m.ToolName, toolComment = m.ToolComment, toolStatus = m.ToolStatus, durationMs = m.DurationMs, provider = m.Provider, model = m.Model }) }) });
+        if (store.LoadError is not null) Send(new { type = "persistence_warning", text = store.LoadError });
+    }
+
+    private void SendAgentEvent(object message)
+    {
+        using var data = JsonDocument.Parse(JsonSerializer.Serialize(message));
+        var root = data.RootElement;
+        string type = root.GetProperty("type").GetString() ?? "";
+        if (type is "answer" or "step" or "tool_result" or "error" or "tool_start" or "tool_finish" or "thinking_start" or "thinking_finish" or "assistant_image")
+        {
+            string id = root.TryGetProperty("conversationId", out var idNode) ? idNode.GetString() ?? "" : "";
+            var chat = store.Data.Chats.Find(c => c.Id == id);
+            if (chat is not null)
+            {
+                if (type == "assistant_image")
+                {
+                    var image = root.GetProperty("image").Deserialize<ChatImage>() ?? throw new InvalidOperationException("Не удалось сохранить изображение.");
+                    chat.Messages.Add(new ChatItem { Role = type, Images = [image] });
+                }
+                else if (type == "thinking_finish")
+                {
+                    string toolId = root.GetProperty("toolId").GetString() ?? "";
+                    var item = chat.Messages.LastOrDefault(m => m.Role == "thinking_start" && m.ToolId == toolId);
+                    if (item is not null) { item.DurationMs = root.GetProperty("durationMs").GetInt64(); item.ToolStatus = root.GetProperty("toolStatus").GetString(); }
+                }
+                else if (type == "thinking_start")
+                    chat.Messages.Add(new ChatItem { Role = type, ToolId = root.GetProperty("toolId").GetString(), ToolStatus = "running", Provider = root.TryGetProperty("provider", out var provider) ? provider.GetString() : null, Model = root.TryGetProperty("model", out var model) ? model.GetString() : null });
+                else if (type == "tool_finish")
+                {
+                    string toolId = root.GetProperty("toolId").GetString() ?? "";
+                    var item = chat.Messages.LastOrDefault(m => m.Role == "tool_start" && m.ToolId == toolId);
+                    if (item is not null) { item.Text = root.GetProperty("text").GetString() ?? ""; item.ToolStatus = root.GetProperty("toolStatus").GetString(); }
+                }
+                else if (type == "tool_start")
+                    chat.Messages.Add(new ChatItem { Role = type, ToolId = root.GetProperty("toolId").GetString(),
+                        ToolName = root.GetProperty("toolName").GetString(), ToolComment = root.GetProperty("toolComment").GetString(), Command = root.GetProperty("command").GetString(), ToolStatus = "running" });
+                else
+                    chat.Messages.Add(new ChatItem { Role = type, Text = root.GetProperty("text").GetString() ?? "",
+                        Command = root.TryGetProperty("command", out var command) ? command.GetString() : null });
+                try { store.Save(); }
+                catch (Exception) { Send(new { type = "persistence_warning", text = "Не удалось сохранить историю. Проверьте доступ к папке Elisa." }); }
+            }
+        }
+        Send(message);
+    }
+
+    private void SendSettings() => Send(new { type = "workspace_settings", paths = workspaces.Settings.Paths, unrestricted = workspaces.Settings.UnrestrictedPowerShell });
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
+
+    private void AddToPath()
+    {
+        string folder = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+        if (folder.Contains(';')) throw new InvalidOperationException("Папка Elisa содержит точку с запятой и не может быть добавлена в PATH.");
+        string userPath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
+        bool exists = userPath.Split(';', StringSplitOptions.RemoveEmptyEntries).Any(p =>
+            string.Equals(Path.TrimEndingDirectorySeparator(Environment.ExpandEnvironmentVariables(p.Trim().Trim('"'))), folder, StringComparison.OrdinalIgnoreCase));
+        if (!exists)
+        {
+            string updated = string.IsNullOrWhiteSpace(userPath) ? folder : userPath.TrimEnd(';') + ";" + folder;
+            if (updated.Length > 32767) throw new InvalidOperationException("PATH слишком длинный.");
+            Environment.SetEnvironmentVariable("PATH", updated, EnvironmentVariableTarget.User);
+            string processPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+            Environment.SetEnvironmentVariable("PATH", processPath.TrimEnd(';') + ";" + folder);
+            SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 0x0002, 5000, out _);
+        }
+        Send(new { type = "path_added", path = folder });
+    }
+}

@@ -1,0 +1,38 @@
+name: Build Elisa for Windows
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test agent and workspace restrictions
+        run: dotnet run --project Elisa.Tests/Elisa.Tests.csproj --configuration Release
+      - name: Build Elisa
+        shell: cmd
+        run: build.bat
+      - name: Test formatted responses and activity
+        run: npm test
+      - name: Upload Windows application
+        uses: actions/upload-artifact@v4
+        with:
+          name: Elisa-Windows-x64
+          path: build/Elisa/
+          if-no-files-found: error
