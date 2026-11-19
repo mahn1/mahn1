@@ -1,0 +1,5 @@
+node_modules/
+.render/
+__pycache__/
+*.mp4
+*.mp3
