@@ -86,7 +86,7 @@ describe('provider configuration',()=>{
     expect(routes.research).toEqual({provider:'nvidia',model:'deepseek-ai/model'});
     expect(routes.review.provider).toBe('inherit');
     const html=renderToStaticMarkup(<ProviderSettings initial={{provider:'openrouter',openRouterModel:'openrouter/free',nvidiaModel:'deepseek-ai/deepseek-v4.1-flash',openRouterConfigured:true,nvidiaConfigured:true,routes:{}}} onSave={()=>{}}/>);
-    expect(html).toContain('NVIDIA Build'); expect(html).toContain('Модели агентов'); expect(html).toContain('сохранён');
+    expect(html).toContain('NVIDIA Build'); expect(html).toContain('Arena API'); expect(html).toContain('coding-router-preview'); expect(html).toContain('Модели агентов'); expect(html).toContain('сохранён');
     expect(html).not.toContain('nvapi-');
   });
 });
@@ -96,7 +96,7 @@ describe('memory and budgets',()=>{
     const memory=renderToStaticMarkup(<MemoryPanel memories={[{Id:'a',Text:'Пиши на русском'}]} onAction={()=>{}}/>);
     expect(memory).toContain('Пиши на русском'); expect(memory).toContain('Удалить заметку');
     const empty=renderToStaticMarkup(<BudgetPanel onAction={()=>{}}/>);
-    expect(empty).toContain('Для NVIDIA остаток квоты здесь неизвестен');
+    expect(empty).toContain('Для NVIDIA остаток квоты здесь неизвестен'); expect(empty).toContain('Arena API');
     const html=renderToStaticMarkup(<BudgetPanel caps={{openrouter:{Requests:12,Tokens:100}}} daily={{openrouter:{Date:'2026-11-17',Requests:2,Tokens:24}}} quota={{usageDaily:0.12,freeRequests:{remaining:8,limit:50}}} onAction={()=>{}}/>);
     expect(html).toContain('8 осталось из 50'); expect(html).toContain('0.12'); expect(html).toContain('2026-11-17');
   });

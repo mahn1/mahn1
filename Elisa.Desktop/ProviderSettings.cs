@@ -10,14 +10,22 @@ internal sealed class AgentRoute
 }
 internal sealed record ProviderRoute(string Provider, string Model, string Key)
 {
-    public Uri Endpoint => Provider == "nvidia" ? new("https://integrate.api.nvidia.com/v1/chat/completions") : new("https://openrouter.ai/api/v1/chat/completions");
-    public string Label => Provider == "nvidia" ? "NVIDIA Build" : "OpenRouter";
+    public Uri Endpoint => Provider switch
+    {
+        "nvidia" => new("https://integrate.api.nvidia.com/v1/chat/completions"),
+        "arena" => new("https://api.arena.ai/v1/chat/completions"),
+        "openrouter" => new("https://openrouter.ai/api/v1/chat/completions"),
+        _ => throw new ArgumentException("Неизвестный провайдер.")
+    };
+    public string Label => Provider switch { "nvidia" => "NVIDIA Build", "arena" => "Arena API", "openrouter" => "OpenRouter", _ => throw new ArgumentException("Неизвестный провайдер.") };
 }
 internal static class ProviderSettings
 {
     public static readonly string[] Roles = ["research", "implement", "review", "general"];
-    public static bool ValidProvider(string value) => value is "openrouter" or "nvidia";
+    public static bool ValidProvider(string value) => value is "openrouter" or "nvidia" or "arena";
     public static bool ValidModel(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 200 && !value.Any(char.IsWhiteSpace) && !value.Any(char.IsControl);
+    public static string KeyFor(SavedState state, string provider) => provider switch { "openrouter" => state.ApiKey, "nvidia" => state.NvidiaApiKey, "arena" => state.ArenaApiKey, _ => throw new ArgumentException("Неизвестный провайдер.") };
+    public static string ModelFor(SavedState state, string provider) => provider switch { "openrouter" => state.Model, "nvidia" => state.NvidiaModel, "arena" => state.ArenaModel, _ => throw new ArgumentException("Неизвестный провайдер.") };
     public static ProviderRoute Resolve(SavedState state, string? role = null)
     {
         string provider = state.SelectedProvider;
@@ -28,8 +36,8 @@ internal static class ProviderSettings
             overrideModel = route.Model;
         }
         if (!ValidProvider(provider)) throw new ArgumentException("Неизвестный провайдер.");
-        string model = string.IsNullOrWhiteSpace(overrideModel) ? (provider == "nvidia" ? state.NvidiaModel : state.Model) : overrideModel;
-        string key = provider == "nvidia" ? state.NvidiaApiKey : state.ApiKey;
+        string model = string.IsNullOrWhiteSpace(overrideModel) ? ModelFor(state, provider) : overrideModel;
+        string key = KeyFor(state, provider);
         if (!ValidModel(model)) throw new ArgumentException("Укажите корректный ID модели для " + provider + ".");
         if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Не задан API-ключ для " + provider + ".");
         return new ProviderRoute(provider, model, key);

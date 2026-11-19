@@ -127,30 +127,33 @@ internal sealed class Agent : IDisposable
 
     public void Configure(string apiKey, string modelId) => ConfigureProviders("openrouter", apiKey, modelId, "", store.Data.NvidiaModel, store.Data.AgentRoutes);
 
-    public void ConfigureProviders(string selectedProvider, string openRouterKey, string openRouterModel, string nvidiaKey, string nvidiaModel, Dictionary<string, AgentRoute> routes)
+    public void ConfigureProviders(string selectedProvider, string openRouterKey, string openRouterModel, string nvidiaKey, string nvidiaModel, Dictionary<string, AgentRoute> routes, string arenaKey = "", string? arenaModel = null)
     {
         EnsureIdle();
+        arenaModel ??= store.Data.ArenaModel;
         if (!ProviderSettings.ValidProvider(selectedProvider)) throw new ArgumentException("Неизвестный провайдер.");
-        if (!ProviderSettings.ValidModel(openRouterModel) || !ProviderSettings.ValidModel(nvidiaModel)) throw new ArgumentException("Введите корректные ID моделей.");
-        if (openRouterKey.Any(char.IsControl) || nvidiaKey.Any(char.IsControl) || openRouterKey.Length > 2048 || nvidiaKey.Length > 2048) throw new ArgumentException("Недопустимый API-ключ.");
+        if (!ProviderSettings.ValidModel(openRouterModel) || !ProviderSettings.ValidModel(nvidiaModel) || !ProviderSettings.ValidModel(arenaModel)) throw new ArgumentException("Введите корректные ID моделей.");
+        if (openRouterKey.Any(char.IsControl) || nvidiaKey.Any(char.IsControl) || arenaKey.Any(char.IsControl) || openRouterKey.Length > 2048 || nvidiaKey.Length > 2048 || arenaKey.Length > 2048) throw new ArgumentException("Недопустимый API-ключ.");
         string nextOpenKey = string.IsNullOrWhiteSpace(openRouterKey) ? store.Data.ApiKey : openRouterKey.Trim();
         string nextNvidiaKey = string.IsNullOrWhiteSpace(nvidiaKey) ? store.Data.NvidiaApiKey : nvidiaKey.Trim();
+        string nextArenaKey = string.IsNullOrWhiteSpace(arenaKey) ? store.Data.ArenaApiKey : arenaKey.Trim();
+        string KeyFor(string provider) => provider switch { "openrouter" => nextOpenKey, "nvidia" => nextNvidiaKey, "arena" => nextArenaKey, _ => "" };
         var nextRoutes = new Dictionary<string, AgentRoute>();
         foreach (var (role, route) in routes)
         {
             if (!ProviderSettings.Roles.Contains(role) || route is null || (route.Provider != "inherit" && !ProviderSettings.ValidProvider(route.Provider)) || (!string.IsNullOrWhiteSpace(route.Model) && !ProviderSettings.ValidModel(route.Model))) throw new ArgumentException("Недопустимые настройки агента.");
             string target = route.Provider == "inherit" ? selectedProvider : route.Provider;
-            if (string.IsNullOrWhiteSpace(target == "nvidia" ? nextNvidiaKey : nextOpenKey)) throw new ArgumentException("Укажите ключ провайдера для агента " + role + ".");
+            if (string.IsNullOrWhiteSpace(KeyFor(target))) throw new ArgumentException("Укажите ключ провайдера для агента " + role + ".");
             nextRoutes[role] = new AgentRoute { Provider = route.Provider, Model = route.Model.Trim() };
         }
-        if (string.IsNullOrWhiteSpace(selectedProvider == "nvidia" ? nextNvidiaKey : nextOpenKey)) throw new ArgumentException("Укажите ключ выбранного провайдера.");
+        if (string.IsNullOrWhiteSpace(KeyFor(selectedProvider))) throw new ArgumentException("Укажите ключ выбранного провайдера.");
         var state = store.Data;
-        string oldProvider = state.SelectedProvider, oldOpenKey = state.ApiKey, oldOpenModel = state.Model, oldNvidiaKey = state.NvidiaApiKey, oldNvidiaModel = state.NvidiaModel;
+        string oldProvider = state.SelectedProvider, oldOpenKey = state.ApiKey, oldOpenModel = state.Model, oldNvidiaKey = state.NvidiaApiKey, oldNvidiaModel = state.NvidiaModel, oldArenaKey = state.ArenaApiKey, oldArenaModel = state.ArenaModel;
         var oldRoutes = state.AgentRoutes;
-        state.SelectedProvider = selectedProvider; state.ApiKey = nextOpenKey; state.Model = openRouterModel.Trim(); state.NvidiaApiKey = nextNvidiaKey; state.NvidiaModel = nvidiaModel.Trim(); state.AgentRoutes = nextRoutes;
+        state.SelectedProvider = selectedProvider; state.ApiKey = nextOpenKey; state.Model = openRouterModel.Trim(); state.NvidiaApiKey = nextNvidiaKey; state.NvidiaModel = nvidiaModel.Trim(); state.ArenaApiKey = nextArenaKey; state.ArenaModel = arenaModel.Trim(); state.AgentRoutes = nextRoutes;
         try { store.Save(); }
-        catch { state.SelectedProvider = oldProvider; state.ApiKey = oldOpenKey; state.Model = oldOpenModel; state.NvidiaApiKey = oldNvidiaKey; state.NvidiaModel = oldNvidiaModel; state.AgentRoutes = oldRoutes; throw; }
-        send(new { type = "configured", provider = selectedProvider, model = selectedProvider == "nvidia" ? state.NvidiaModel : state.Model });
+        catch { state.SelectedProvider = oldProvider; state.ApiKey = oldOpenKey; state.Model = oldOpenModel; state.NvidiaApiKey = oldNvidiaKey; state.NvidiaModel = oldNvidiaModel; state.ArenaApiKey = oldArenaKey; state.ArenaModel = oldArenaModel; state.AgentRoutes = oldRoutes; throw; }
+        send(new { type = "configured", provider = selectedProvider, model = ProviderSettings.ModelFor(state, selectedProvider) });
     }
 
     public Task<object> CheckOpenRouterQuotaAsync(CancellationToken ct) => ProviderBudget.OpenRouterQuotaAsync(http, store.Data.ApiKey, ct);
@@ -198,7 +201,7 @@ internal sealed class Agent : IDisposable
             {
                 token.ThrowIfCancellationRequested();
 
-                if (route.Provider == "nvidia" && ProviderSettings.HasFileParts(history)) throw new InvalidOperationException("NVIDIA Build в Elisa пока поддерживает текст и изображения, но не PDF/бинарные вложения. Используйте OpenRouter или новый чат без таких вложений.");
+                if ((route.Provider is "nvidia" or "arena") && ProviderSettings.HasFileParts(history)) throw new InvalidOperationException(route.Label + " в Elisa пока поддерживает текст и изображения, но не PDF/бинарные вложения. Используйте OpenRouter или новый чат без таких вложений.");
                 List<MemoryItem> memories; lock (store.Sync) memories = store.Data.Memories.ToList();
                 var preparedHistory = ChatContext.Prepare(history, memories, out bool compacted);
                 if (compacted && !contextNotified) { send(new { type = "context_compacted", conversationId }); contextNotified = true; }
@@ -230,7 +233,7 @@ internal sealed class Agent : IDisposable
                 {
                     using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, responseTimeout.Token);
                     if (!response.IsSuccessStatusCode)
-                        throw new InvalidOperationException($"Ошибка {route.Label}: HTTP {(int)response.StatusCode}. Проверьте ключ, модель, лимиты и поддержку инструментов и вложений.");
+                        throw new InvalidOperationException($"Ошибка {route.Label}: HTTP {(int)response.StatusCode}. " + (route.Provider == "arena" && (int)response.StatusCode == 403 ? "Проверьте, разрешён ли доступ внешних API-клиентов в workspace Arena, и права ключа и модели." : "Проверьте ключ, модель, лимиты и поддержку инструментов и вложений."));
                     root = await ChatStreaming.ReadAsync(response, fragment => { if (role is null) send(new { type = "stream_delta", conversationId, streamId = thinkingId, text = fragment }); }, responseTimeout.Token);
                     completed = true;
                 }

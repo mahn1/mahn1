@@ -246,6 +246,41 @@ try
         try { await nv.RunAsync("nvidia-pdf", "file", attachments); throw new Exception("unsupported NVIDIA attachment accepted"); } catch (InvalidOperationException ex) { Assert(ex.Message.Contains("PDF"), "wrong NVIDIA file error"); }
     }
     Assert(nvHandler.Requests.Count == 1, "unsupported file was sent to NVIDIA");
+    // Arena settings work for both the main agent and role overrides; keys never cross endpoints.
+    var arenaStore = new LocalStore(Path.Combine(temp, "arena-state.dat"));
+    var arenaHandler = new FakeHandler(ReplyWithTool("delegate_agent", "arena-delegate", new { role = "research", task = "Исследуй" }),
+        """{"choices":[{"message":{"role":"assistant","content":"child"}}]}""",
+        """{"model":"coding-router-preview","usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8},"choices":[{"message":{"role":"assistant","content":"done"}}]}""");
+    using (var arenaAgent = new Agent(_ => { }, spaces, new HttpClient(arenaHandler), store: arenaStore))
+    {
+        arenaAgent.ConfigureProviders("arena", "or-key", "or-model", "nv-key", "nv-model", new() { ["research"] = new AgentRoute { Provider = "openrouter", Model = "or-child" } }, "arena-key", "coding-router-preview");
+        await arenaAgent.RunAsync("arena-chat", "Исследуй");
+    }
+    Assert(arenaHandler.Uris.Select(u => u.Host).SequenceEqual(new[] { "api.arena.ai", "openrouter.ai", "api.arena.ai" }), "Arena endpoint/role routing");
+    Assert(arenaHandler.Uris[0].AbsolutePath == "/v1/chat/completions" && arenaHandler.Auth.SequenceEqual(new[] { "arena-key", "or-key", "arena-key" }), "Arena key crossed endpoints");
+    var arenaRequest = JsonNode.Parse(arenaHandler.Requests[0])!;
+    Assert(arenaRequest["model"]!.GetValue<string>() == "coding-router-preview" && arenaRequest["stream"]!.GetValue<bool>() && arenaRequest["plugins"] is null && arenaRequest["stream_options"] is null, "Arena request incorrect");
+    Assert(arenaStore.Data.Usage["Arena · coding-router-preview"].TotalTokens == 8 && arenaStore.Data.DailyUsage["arena"].Requests == 2, "Arena usage not isolated");
+    var arenaReloaded = new LocalStore(Path.Combine(temp, "arena-state.dat"));
+    Assert(arenaReloaded.Data.ArenaApiKey == "arena-key" && arenaReloaded.Data.ArenaModel == "coding-router-preview" && arenaReloaded.Data.ApiKey == "or-key" && arenaReloaded.Data.NvidiaApiKey == "nv-key", "Arena state migration/persistence");
+    Assert(!Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(temp, "arena-state.dat"))).Contains("arena-key"), "Arena key not protected");
+    var childArena = new FakeHandler(ReplyWithTool("delegate_agent", "d-arena", new { role = "research", task = "test" }), answerReply, answerReply);
+    using (var a = new Agent(_ => { }, spaces, new HttpClient(childArena), store: arenaReloaded))
+    {
+        a.ConfigureProviders("openrouter", "", "or-model", "", "nv-model", new() { ["research"] = new AgentRoute { Provider = "arena", Model = "custom-arena" } });
+        await a.RunAsync("child-arena", "test");
+        Assert(childArena.Uris[1].Host == "api.arena.ai" && childArena.Auth[1] == "arena-key" && JsonNode.Parse(childArena.Requests[1])!["model"]!.GetValue<string>() == "custom-arena", "Arena agent role routing");
+        a.ConfigureProviders("arena", "", "or-model", "", "nv-model", new());
+        try { await a.RunAsync("arena-pdf", "file", attachments); throw new Exception("unsupported Arena attachment accepted"); } catch (InvalidOperationException ex) { Assert(ex.Message.Contains("PDF"), "wrong Arena attachment error"); }
+    }
+    Assert(childArena.Uris.Count == 3, "unsupported Arena file sent");
+    var oldData = JsonSerializer.Deserialize<SavedState>("""{"ApiKey":"old","Model":"or-old"}""")!;
+    Assert(oldData.ArenaApiKey == "" && oldData.ArenaModel == "coding-router-preview" && ProviderSettings.Resolve(oldData).Key == "old", "old state migration");
+    var arenaStreamEvents = new List<string>();
+    using (var a = new Agent(e => arenaStreamEvents.Add(JsonSerializer.Serialize(e)), spaces, new HttpClient(new ArenaStreamHandler()), store: arenaReloaded)) await a.RunAsync("arena-stream", "hello");
+    Assert(arenaStreamEvents.Any(e => e.Contains("stream_delta")) && arenaStreamEvents.Any(e => e.Contains("answer")), "Arena stream not displayed");
+    var arenaLimits = new LocalStore(persist: false); ProviderBudget.SetCaps(arenaLimits, "arena", 1, 0); ProviderBudget.Begin(arenaLimits, "arena");
+    try { ProviderBudget.Begin(arenaLimits, "arena"); throw new Exception("Arena request limit ignored"); } catch (InvalidOperationException) { }
     var pyCheck = await PythonRunner.RunAsync(new[] { "-c", "print('elisa-python-ok')" }, root, false, CancellationToken.None);
     Assert(pyCheck.Contains("Код выхода: 0") && pyCheck.Contains("elisa-python-ok"), "Python execution failed");
     var pyVenv = await PythonRunner.RunAsync(new[] { "-m", "venv", ".venv" }, root, false, CancellationToken.None);
@@ -357,4 +392,18 @@ sealed class ParallelHandler(string first, string? malicious = null) : HttpMessa
         return Reply("""{"choices":[{"message":{"role":"assistant","content":"Итог"}}]}""");
     }
     private static HttpResponseMessage Reply(string text) => new(HttpStatusCode.OK) { Content=new StringContent(text,Encoding.UTF8,"application/json") };
+}
+
+sealed class ArenaStreamHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        AssertRequest(request);
+        string sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n" + "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" + "data: [DONE]\n\n";
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(sse, Encoding.UTF8, "text/event-stream") });
+    }
+    private static void AssertRequest(HttpRequestMessage request)
+    {
+        if (request.RequestUri?.Host != "api.arena.ai" || request.Headers.Authorization?.Parameter != "arena-key") throw new Exception("stream sent to wrong endpoint/key");
+    }
 }

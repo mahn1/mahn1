@@ -44,6 +44,8 @@ internal sealed class SavedState
     public string Model { get; set; } = "openrouter/free"; // legacy OpenRouter model
     public string NvidiaApiKey { get; set; } = "";
     public string NvidiaModel { get; set; } = "deepseek-ai/deepseek-v4.1-flash";
+    public string ArenaApiKey { get; set; } = "";
+    public string ArenaModel { get; set; } = "coding-router-preview";
     public string SelectedProvider { get; set; } = "openrouter";
     public Dictionary<string, AgentRoute> AgentRoutes { get; set; } = [];
     public Dictionary<string, string> HistoryRoutes { get; set; } = [];
@@ -117,6 +119,7 @@ internal sealed class LocalStore
         string model = root["model"] is JsonValue value && value.TryGetValue<string>(out var actual) && !string.IsNullOrWhiteSpace(actual) ? actual : fallbackModel;
         if (model.Length > 200) model = model[..200];
         if (provider == "nvidia") model = "NVIDIA · " + model;
+        if (provider == "arena") model = "Arena · " + model;
         if (!Data.Usage.TryGetValue(model, out var record)) Data.Usage[model] = record = new();
         record.PromptTokens += prompt ?? 0; record.CompletionTokens += completion ?? 0;
         record.TotalTokens += totalValue; record.Requests++;

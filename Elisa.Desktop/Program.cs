@@ -175,7 +175,7 @@ internal sealed class ElisaWindow : Form
             else if (type == "configure_providers")
             {
                 var routes = root.GetProperty("routes").Deserialize<Dictionary<string, AgentRoute>>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
-                agent.ConfigureProviders(root.GetProperty("provider").GetString() ?? "", root.GetProperty("openRouterKey").GetString() ?? "", root.GetProperty("openRouterModel").GetString() ?? "", root.GetProperty("nvidiaKey").GetString() ?? "", root.GetProperty("nvidiaModel").GetString() ?? "", routes);
+                agent.ConfigureProviders(root.GetProperty("provider").GetString() ?? "", root.GetProperty("openRouterKey").GetString() ?? "", root.GetProperty("openRouterModel").GetString() ?? "", root.GetProperty("nvidiaKey").GetString() ?? "", root.GetProperty("nvidiaModel").GetString() ?? "", routes, root.GetProperty("arenaKey").GetString() ?? "", root.GetProperty("arenaModel").GetString() ?? "");
                 SendState();
             }
             else if (type == "cancel") agent.Cancel();
@@ -215,9 +215,9 @@ internal sealed class ElisaWindow : Form
 
     private void SendState()
     {
-        Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(store.Data.SelectedProvider == "nvidia" ? store.Data.NvidiaApiKey : store.Data.ApiKey),
-            provider = store.Data.SelectedProvider, model = store.Data.SelectedProvider == "nvidia" ? store.Data.NvidiaModel : store.Data.Model,
-            openRouterModel = store.Data.Model, nvidiaModel = store.Data.NvidiaModel, openRouterConfigured = !string.IsNullOrEmpty(store.Data.ApiKey), nvidiaConfigured = !string.IsNullOrEmpty(store.Data.NvidiaApiKey), routes = store.Data.AgentRoutes,
+        Send(new { type = "state_loaded", configured = !string.IsNullOrEmpty(ProviderSettings.KeyFor(store.Data, store.Data.SelectedProvider)),
+            provider = store.Data.SelectedProvider, model = ProviderSettings.ModelFor(store.Data, store.Data.SelectedProvider),
+            openRouterModel = store.Data.Model, nvidiaModel = store.Data.NvidiaModel, arenaModel = store.Data.ArenaModel, arenaConfigured = !string.IsNullOrEmpty(store.Data.ArenaApiKey), openRouterConfigured = !string.IsNullOrEmpty(store.Data.ApiKey), nvidiaConfigured = !string.IsNullOrEmpty(store.Data.NvidiaApiKey), routes = store.Data.AgentRoutes,
             usage = store.Data.Usage, memories = store.Data.Memories, caps = store.Data.ProviderCaps, daily = store.Data.DailyUsage,
             chats = store.Data.Chats.Select(c => new { id = c.Id, title = c.Title, preview = c.Preview,
                 messages = c.Messages.Select(m => new { role = m.Role, text = m.Text, command = m.Command, attachments = m.Attachments, images = m.Images, toolId = m.ToolId, toolName = m.ToolName, toolComment = m.ToolComment, toolStatus = m.ToolStatus, durationMs = m.DurationMs, provider = m.Provider, model = m.Model }) }) });

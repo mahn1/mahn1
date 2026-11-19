@@ -27,7 +27,7 @@ internal static class ModelDiagnostics
                 request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
                 ProviderBudget.Begin(store, route.Provider); notify();
                 using var response = await http.SendAsync(request, ct);
-                if (!response.IsSuccessStatusCode) { results.Add(kind + ": не подтверждено — HTTP " + (int)response.StatusCode + ". Проверьте ключ, модель, квоту, доступ и совместимость запроса."); continue; }
+                if (!response.IsSuccessStatusCode) { string hint = route.Provider == "arena" && (int)response.StatusCode == 403 ? "Проверьте разрешение сторонних API-клиентов в workspace Arena, права ключа и доступ модели." : "Проверьте ключ, модель, квоту, доступ и совместимость запроса."; results.Add(kind + ": не подтверждено — HTTP " + (int)response.StatusCode + ". " + hint); continue; }
                 var root = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct));
                 if (root is null || root["error"] is not null) { results.Add(kind + ": не подтверждено — провайдер вернул ошибку."); continue; }
                 lock (store.Sync) { ProviderBudget.AddUsage(store, route.Provider, root); store.RecordUsage(root, route.Model, route.Provider); store.Save(); } notify();
